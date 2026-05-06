@@ -49,9 +49,10 @@ async def search_coldstorage(query: str, limit: int = 20) -> list[dict]:
         price = item.get("price")
         if not name or not price:
             continue
+        orig = item.get("original_price")
         products.append({
             "name": name, "brand": "", "price": float(price),
-            "original_price": None, "promo": None, "unit": "",
+            "original_price": float(orig) if orig else None, "promo": None, "unit": "",
             "image": item.get("image", ""), "barcode": None,
             "category": "", "store": "cold",
             "scraped_at": datetime.utcnow(),

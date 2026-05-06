@@ -159,12 +159,25 @@ async def search_shengsiong(query: str, limit: int = 20) -> list[dict]:
 
                 img_src = await img_el.get_attribute("src") if img_el else ""
 
+                orig_price = None
+                try:
+                    orig_el = await el.query_selector(
+                        'del,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"]'
+                    )
+                    if orig_el:
+                        orig_txt = (await orig_el.inner_text()).strip()
+                        om = _PRICE_RE.search(orig_txt)
+                        if om and float(om.group(1)) > float(m.group(1)):
+                            orig_price = float(om.group(1))
+                except Exception:
+                    pass
+
                 if name and float(m.group(1)) > 0:
                     products.append({
                         "name":           name[:120],
                         "brand":          "",
                         "price":          float(m.group(1)),
-                        "original_price": None,
+                        "original_price": orig_price,
                         "promo":          None,
                         "unit":           "",
                         "image":          img_src or "",
@@ -196,13 +209,15 @@ def _from_json_ld(item: dict) -> dict | None:
         price = offer.get("price") or offer.get("lowPrice")
         if not name or not price:
             return None
+        high = offer.get("highPrice")
+        orig = float(high) if high and float(high) > float(price) else None
         image_raw = item.get("image", "")
         image = image_raw if isinstance(image_raw, str) else (image_raw[0] if image_raw else "")
         return {
             "name":           name,
             "brand":          (item.get("brand") or {}).get("name", ""),
             "price":          float(price),
-            "original_price": None,
+            "original_price": orig,
             "promo":          None,
             "unit":           "",
             "image":          image,

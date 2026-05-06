@@ -12,10 +12,11 @@ _UA = (
 # Finds every $X.XX price node in the rendered DOM, then walks up the
 # element tree to find the nearest product name and image.
 _EXTRACT_JS = """() => {
-    const priceRe = /^\\$?(\\d+\\.\\d{2})$/;
-    const seen    = new Set();
-    const results = [];
-    const iter    = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
+    const priceRe  = /^\\$?(\\d+\\.\\d{2})$/;
+    const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
+    const seen     = new Set();
+    const results  = [];
+    const iter     = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = iter.nextNode())) {
         const txt = node.textContent.trim();
@@ -24,7 +25,7 @@ _EXTRACT_JS = """() => {
         const price = parseFloat(m[1]);
         if (price < 0.10 || price > 999) continue;
 
-        let el = node.parentElement, name = '', img = '';
+        let el = node.parentElement, name = '', img = '', origPrice = null;
         for (let i = 0; i < 7; i++) {
             if (!el || el === document.body) break;
             if (!name) {
@@ -42,6 +43,16 @@ _EXTRACT_JS = """() => {
                 const imgEl = el.querySelector('img');
                 if (imgEl) img = imgEl.src || imgEl.dataset.src || '';
             }
+            if (!origPrice && i >= 1) {
+                for (const d of el.querySelectorAll(strikeSel)) {
+                    const t = d.textContent.trim();
+                    const pm = t.match(/^\\$?(\\d+\\.\\d{2})$/);
+                    if (pm) {
+                        const op = parseFloat(pm[1]);
+                        if (op > price) { origPrice = op; break; }
+                    }
+                }
+            }
             if (name && img) break;
             el = el.parentElement;
         }
@@ -49,7 +60,7 @@ _EXTRACT_JS = """() => {
         const key = name + '|' + price;
         if (seen.has(key)) continue;
         seen.add(key);
-        results.push({ name, price, image: img });
+        results.push({ name, price, image: img, original_price: origPrice });
     }
     return results;
 }"""
@@ -101,11 +112,12 @@ async def scrape_store(
         price = item.get("price")
         if not name or not price:
             continue
+        orig = item.get("original_price")
         products.append({
             "name":           name,
             "brand":          "",
             "price":          float(price),
-            "original_price": None,
+            "original_price": float(orig) if orig else None,
             "promo":          None,
             "unit":           "",
             "image":          item.get("image", ""),

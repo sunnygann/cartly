@@ -241,6 +241,12 @@
     }
     .pg-badge-best { background: var(--green); color: #fff; }
     .pg-badge-over { background: rgba(0,0,0,.06); color: var(--muted); }
+    .pg-badge-sale { background: #fef3c7; color: #92400e; }
+    @media (prefers-color-scheme: dark) {
+      .pg-badge-sale { background: #451a03; color: #fcd34d; }
+    }
+    .pg-price-sale { color: var(--accent); }
+    .pg-was { font-size: .68rem; font-weight: 500; color: var(--muted); text-decoration: line-through; margin-left: .25rem; }
 
     .pg-add {
       background: rgba(0,0,0,.05); border: 1px solid var(--border);
@@ -585,12 +591,13 @@ const API = window.location.hostname === 'localhost'
 
   const pool      = 'abcdefghijklmnopqrstuvwxyz!#$@01';
   const groceries = [
-    { icon: '🥚', text: 'Eggs'  },
-    { icon: '🍚', text: 'Rice'  },
-    { icon: '🥛', text: 'Milk'  },
-    { icon: '🍞', text: 'Bread' },
+    { icon: '🥚', text: 'Eggs?'    },
+    { icon: '🍚', text: 'Rice?'    },
+    { icon: '🥛', text: 'Milk?'    },
+    { icon: '🍞', text: 'Bread?'   },
+    { icon: '🍎', text: 'Fruits?'   },
   ];
-  const HOLD = 247;
+  const HOLD = 166;
 
   function rand() { return pool[Math.floor(Math.random() * pool.length)]; }
 
@@ -881,21 +888,28 @@ function renderResults(query, results) {
     card.className = 'price-card' + (isMulti ? ' multi-store' : '');
 
     const rows = group.items.map((item, i) => {
-      const isBest = i === 0 && isMulti;
-      const pct    = i > 0 ? (((item.price - cheapest) / cheapest) * 100).toFixed(0) : 0;
-      const sn     = item.product_name.replace(/'/g,"\\'");
-      const sk     = item.store_key;
-      const snm    = item.store_name.replace(/'/g,"\\'");
-      const badge  = isBest
-        ? `<span class="pg-badge pg-badge-best">Best</span>`
-        : isMulti
-          ? `<span class="pg-badge pg-badge-over">+${pct}%</span>`
-          : `<span class="pg-badge"></span>`;
+      const isBest    = i === 0 && isMulti;
+      const pct       = i > 0 ? (((item.price - cheapest) / cheapest) * 100).toFixed(0) : 0;
+      const hasPromo  = item.original_price && item.original_price > item.price;
+      const discPct   = hasPromo ? Math.round((1 - item.price / item.original_price) * 100) : 0;
+      const sn        = item.product_name.replace(/'/g,"\\'");
+      const sk        = item.store_key;
+      const snm       = item.store_name.replace(/'/g,"\\'");
+      const badge     = hasPromo
+        ? `<span class="pg-badge pg-badge-sale">-${discPct}%</span>`
+        : isBest
+          ? `<span class="pg-badge pg-badge-best">Best</span>`
+          : isMulti
+            ? `<span class="pg-badge pg-badge-over">+${pct}%</span>`
+            : `<span class="pg-badge"></span>`;
+      const priceHtml = hasPromo
+        ? `<span class="pg-price pg-price-sale">$${item.price.toFixed(2)}<span class="pg-was">$${item.original_price.toFixed(2)}</span></span>`
+        : `<span class="pg-price">$${item.price.toFixed(2)}</span>`;
       return `
         <div class="pg-row ${isBest ? 'pg-row-best' : ''}">
           <span class="pg-dot" style="background:${item.store_color}"></span>
           <span class="pg-store" style="color:${item.store_color}">${item.store_name}</span>
-          <span class="pg-price">$${item.price.toFixed(2)}</span>
+          ${priceHtml}
           ${badge}
           <button class="pg-add" onclick="addToBasket('${sn}','${sk}','${snm}',${item.price},'${item.unit||''}',${item.product_id},'${item.store_color}')">+ Add</button>
         </div>`;
