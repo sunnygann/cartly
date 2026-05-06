@@ -864,6 +864,25 @@ function normalizePromo(text) {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+function cleanProductName(raw) {
+  if (!raw) return '';
+  // If the name contains garbage (price, rating, add-to-cart), extract the real name
+  if (/\$\d+\.?\d*/.test(raw) || /add\s+to\s+cart/i.test(raw) || /\d+\.\d+\s*\(\d+\)/.test(raw)) {
+    // Take the part before the first dollar sign or "add to cart"
+    const m = raw.match(/^(.*?)(?:\$\d+\.?\d*|add\s+to\s+cart)/i);
+    if (m && m[1].trim().length > 3) return m[1].trim();
+    // Fallback: remove all price/rating/add-to-cart noise
+    const clean = raw
+      .replace(/\$\d+(?:\.\d+)?/g, '')
+      .replace(/\d+\.\d+\s*\(\d+\)/g, '')
+      .replace(/add\s+to\s+cart/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return clean.length > 5 ? clean : raw;
+  }
+  return raw;
+}
+
 function renderResults(query, results) {
   const section  = document.getElementById('results-section');
   const grid     = document.getElementById('price-grid');
@@ -886,7 +905,8 @@ function renderResults(query, results) {
   groups.forEach(group => {
     const cheapest = group.items[0].price;
     const isMulti  = group.items.length > 1;
-    const { clean, sub: parsedSub } = extractMeta(group.displayName);
+    const cleanRaw = cleanProductName(group.displayName);
+const { clean, sub: parsedSub } = extractMeta(cleanRaw);
     const subParts = [];
     if (group.brand) subParts.push(group.brand);
     if (group.unit) subParts.push(group.unit);
@@ -902,7 +922,7 @@ function renderResults(query, results) {
       const hasMarkdown = item.original_price && item.original_price > item.price;
       const discPct   = hasMarkdown ? Math.round((1 - item.price / item.original_price) * 100) : 0;
       const promoLabel = item.promo ? normalizePromo(item.promo) : null;
-      const sn        = item.product_name.replace(/'/g,"\\'");
+      const sn        = cleanProductName(item.product_name).replace(/'/g,"\\'");
       const sk        = item.store_key;
       const snm       = item.store_name.replace(/'/g,"\\'");
       const badge     = promoLabel
