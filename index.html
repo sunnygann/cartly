@@ -10,11 +10,11 @@
 
     :root {
       --red:    #e63946;
-      --green:  #2a9d8f;
-      --dark:   #1a1a2e;
-      --mid:    #16213e;
-      --card:   #0f3460;
-      --accent: #e94560;
+      --green:  #12b76a;
+      --dark:   #111917;
+      --mid:    #172320;
+      --card:   #1e3329;
+      --accent: #12b76a;
       --text:   #eaeaea;
       --muted:  #9ca3af;
       --border: rgba(255,255,255,0.08);
@@ -22,7 +22,6 @@
       --giant:  #f5a623;
       --cold:   #0066cc;
       --sheng:  #2ecc71;
-      --red2:   #e84393;
     }
 
     html { scroll-behavior: smooth; }
@@ -41,7 +40,7 @@
       display: flex; align-items: center; justify-content: space-between;
       padding: 0 1.5rem;
       height: 60px;
-      background: rgba(26,26,46,0.92);
+      background: rgba(17,25,23,0.92);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
     }
@@ -82,7 +81,7 @@
     .nav-drawer {
       display: none; /* toggled by JS */
       position: fixed; top: 60px; left: 0; right: 0; z-index: 99;
-      background: rgba(22,33,62,0.98);
+      background: rgba(17,25,23,0.98);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
       padding: 1rem 1.5rem;
@@ -108,12 +107,12 @@
       display: flex; flex-direction: column; align-items: center;
       text-align: center;
       padding: 5rem 1.5rem 3rem;
-      background: radial-gradient(ellipse at 50% 0%, #1b2f5a 0%, var(--dark) 70%);
+      background: radial-gradient(ellipse at 50% 0%, #0a2e1e 0%, var(--dark) 70%);
     }
     .badge {
       display: inline-flex; align-items: center; gap: .4rem;
-      background: rgba(233,69,96,.15); border: 1px solid rgba(233,69,96,.3);
-      color: #f9a; padding: .3rem .8rem; border-radius: 999px;
+      background: rgba(18,183,106,.15); border: 1px solid rgba(18,183,106,.3);
+      color: #6ee7b7; padding: .3rem .8rem; border-radius: 999px;
       font-size: .78rem; font-weight: 600; margin-bottom: 1.5rem;
     }
     h1 {
@@ -156,7 +155,7 @@
       font-size: .8rem; cursor: pointer; transition: all .2s;
       min-height: 44px; display: inline-flex; align-items: center; /* fix #6: 44pt target */
     }
-    .tag:hover { background: rgba(233,69,96,.15); border-color: var(--accent); color: var(--text); }
+    .tag:hover { background: rgba(18,183,106,.12); border-color: var(--accent); color: var(--text); }
 
     /* ── STORES STRIP ── */
     .stores-strip {
@@ -189,7 +188,7 @@
       transition: transform .2s, border-color .2s;
     }
     .price-card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.15); }
-    .price-card.multi-store { border-color: rgba(42,157,143,.35); }
+    .price-card.multi-store { border-color: rgba(18,183,106,.35); }
 
     /* Product header: image + name + meta */
     .pg-header { display: flex; align-items: flex-start; gap: .65rem; margin-bottom: .75rem; }
@@ -206,7 +205,7 @@
       margin-bottom: .25rem; border: 1px solid transparent;
     }
     .pg-row:last-child { margin-bottom: 0; }
-    .pg-row-best { background: rgba(42,157,143,.1); border-color: rgba(42,157,143,.3); }
+    .pg-row-best { background: rgba(18,183,106,.1); border-color: rgba(18,183,106,.3); }
     .pg-dot   { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
     .pg-store { font-size: .68rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .pg-price { font-size: .9rem; font-weight: 900; text-align: right; white-space: nowrap; }
@@ -223,7 +222,7 @@
       font-size: .72rem; font-weight: 700; cursor: pointer; transition: background .2s;
       white-space: nowrap; min-height: 30px; display: inline-flex; align-items: center;
     }
-    .pg-add:hover { background: rgba(233,69,96,.25); border-color: var(--accent); }
+    .pg-add:hover { background: rgba(18,183,106,.2); border-color: var(--accent); }
 
     /* on very small screens, badge disappears to make room */
     @media (max-width: 400px) {
@@ -265,7 +264,7 @@
       min-width: 44px; min-height: 44px; /* fix #5: was just an emoji with no target area */
       display: inline-flex; align-items: center; justify-content: center;
     }
-    .remove-btn:hover { color: var(--accent); }
+    .remove-btn:hover { color: var(--red); }
     .qty-btn {
       background: rgba(255,255,255,.08); border: none; color: var(--text);
       width: 32px; height: 32px; min-width: 32px; /* fix #2: was 22×22px */
@@ -305,7 +304,7 @@
     .step p { color: var(--muted); font-size: .85rem; line-height: 1.6; }
 
     /* ── ALERT BANNER ── */
-    .alert-section { padding: 3rem 1.5rem; background: linear-gradient(135deg, #0f3460 0%, #16213e 100%); }
+    .alert-section { padding: 3rem 1.5rem; background: linear-gradient(135deg, #0a2e1e 0%, #172320 100%); }
     .alert-inner { max-width: 600px; margin: 0 auto; text-align: center; }
     .alert-inner h2 { font-size: 1.5rem; font-weight: 800; margin-bottom: .5rem; }
     .alert-inner p { color: var(--muted); margin-bottom: 1.5rem; font-size: .9rem; }
