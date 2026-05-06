@@ -838,6 +838,8 @@ function groupByProduct(results) {
     }
     groups.push({
       displayName: r.product_name,
+      brand: r.brand || null,
+      unit: r.unit || null,
       image: items.find(x => x.image)?.image || '',
       items: items.sort((a, b) => a.price - b.price),
     });
@@ -868,7 +870,12 @@ function renderResults(query, results) {
   groups.forEach(group => {
     const cheapest = group.items[0].price;
     const isMulti  = group.items.length > 1;
-    const { clean, sub } = extractMeta(group.displayName);
+    const { clean, sub: parsedSub } = extractMeta(group.displayName);
+    const subParts = [];
+    if (group.brand) subParts.push(group.brand);
+    if (group.unit) subParts.push(group.unit);
+    else if (parsedSub) subParts.push(parsedSub);
+    const sub = subParts.join(' · ');
 
     const card = document.createElement('div');
     card.className = 'price-card' + (isMulti ? ' multi-store' : '');
