@@ -539,6 +539,28 @@ const API = window.location.hostname === 'localhost'
   ? 'http://localhost:8000'
   : 'https://YOUR-RAILWAY-BACKEND-URL.railway.app';
 
+// ── LOGO SCRAMBLE ── //
+(function() {
+  const span = document.querySelector('.logo span');
+  if (!span) return;
+  const target = 'ly';
+  const pool   = 'abcdefghijklmnopqrstuvwxyz01!#$@';
+  let frame = 0;
+  const FRAMES = 20;
+  span.textContent = pool[0] + pool[1]; // start non-empty so layout doesn't shift
+  setTimeout(() => {
+    const id = setInterval(() => {
+      frame++;
+      span.textContent = target.split('').map((ch, i) => {
+        return frame >= Math.round((i + 1) * FRAMES / target.length)
+          ? ch
+          : pool[Math.floor(Math.random() * pool.length)];
+      }).join('');
+      if (frame >= FRAMES) clearInterval(id);
+    }, 45);
+  }, 250);
+})();
+
 // ── STATE ── //
 let basket    = [];
 let histChart = null;
