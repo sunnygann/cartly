@@ -12,11 +12,13 @@ _UA = (
 # Finds every $X.XX price node in the rendered DOM, then walks up the
 # element tree to find the nearest product name and image.
 _EXTRACT_JS = """() => {
-    const priceRe  = /^\\$?(\\d+\\.\\d{2})$/;
+    const priceRe   = /^\\$?(\\d+\\.\\d{2})$/;
     const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
-    const seen     = new Set();
-    const results  = [];
-    const iter     = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
+    const promoSel  = '[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]';
+    const promoRe   = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|\\d+\\s+for\\s+\\$[\\d.]+/i;
+    const seen      = new Set();
+    const results   = [];
+    const iter      = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = iter.nextNode())) {
         const txt = node.textContent.trim();
@@ -25,7 +27,7 @@ _EXTRACT_JS = """() => {
         const price = parseFloat(m[1]);
         if (price < 0.10 || price > 999) continue;
 
-        let el = node.parentElement, name = '', img = '', origPrice = null;
+        let el = node.parentElement, name = '', img = '', origPrice = null, promoText = null;
         for (let i = 0; i < 7; i++) {
             if (!el || el === document.body) break;
             if (!name) {
@@ -43,13 +45,28 @@ _EXTRACT_JS = """() => {
                 const imgEl = el.querySelector('img');
                 if (imgEl) img = imgEl.src || imgEl.dataset.src || '';
             }
-            if (!origPrice && i >= 1) {
-                for (const d of el.querySelectorAll(strikeSel)) {
-                    const t = d.textContent.trim();
-                    const pm = t.match(/^\\$?(\\d+\\.\\d{2})$/);
-                    if (pm) {
-                        const op = parseFloat(pm[1]);
-                        if (op > price) { origPrice = op; break; }
+            if (i >= 1) {
+                if (!origPrice) {
+                    for (const d of el.querySelectorAll(strikeSel)) {
+                        const t = d.textContent.trim();
+                        const pm = t.match(/^\\$?(\\d+\\.\\d{2})$/);
+                        if (pm) {
+                            const op = parseFloat(pm[1]);
+                            if (op > price) { origPrice = op; break; }
+                        }
+                    }
+                }
+                if (!promoText) {
+                    for (const p of el.querySelectorAll(promoSel)) {
+                        const t = p.textContent.trim();
+                        if (promoRe.test(t) && t.length < 50) { promoText = t; break; }
+                    }
+                    if (!promoText) {
+                        for (const c of el.querySelectorAll('span,div,p')) {
+                            if (c.children.length > 0) continue;
+                            const t = c.textContent.trim();
+                            if (promoRe.test(t) && t.length < 50) { promoText = t; break; }
+                        }
                     }
                 }
             }
@@ -60,7 +77,7 @@ _EXTRACT_JS = """() => {
         const key = name + '|' + price;
         if (seen.has(key)) continue;
         seen.add(key);
-        results.push({ name, price, image: img, original_price: origPrice });
+        results.push({ name, price, image: img, original_price: origPrice, promo: promoText });
     }
     return results;
 }"""
@@ -118,7 +135,7 @@ async def scrape_store(
             "brand":          "",
             "price":          float(price),
             "original_price": float(orig) if orig else None,
-            "promo":          None,
+            "promo":          item.get("promo") or None,
             "unit":           "",
             "image":          item.get("image", ""),
             "barcode":        None,

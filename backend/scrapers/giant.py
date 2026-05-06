@@ -72,9 +72,11 @@ async def search_giant(query: str, limit: int = 20) -> list[dict]:
                     h.get("original_price") or h.get("comparePrice") or
                     h.get("priceWas") or h.get("price_was"))
         orig = float(raw_orig) if raw_orig and float(raw_orig) > float(price) else None
+        promo_text = (h.get("promotion") or h.get("promo_text") or
+                      h.get("promotionText") or h.get("promo") or None)
         products.append({
             "name": name, "brand": h.get("brand_name", ""), "price": float(price),
-            "original_price": orig, "promo": None, "unit": h.get("size", ""),
+            "original_price": orig, "promo": promo_text, "unit": h.get("size", ""),
             "image": h.get("image_url", ""), "barcode": None,
             "category": "", "store": "giant",
             "scraped_at": datetime.utcnow(),
