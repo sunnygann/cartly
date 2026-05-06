@@ -12,17 +12,37 @@
     :root {
       --red:    #e63946;
       --green:  #12b76a;
-      --dark:   #111917;
-      --mid:    #172320;
-      --card:   #1e3329;
+      --dark:   #F9FAFB;
+      --mid:    #FFFFFF;
+      --card:   #F3F4F6;
       --accent: #12b76a;
-      --text:   #eaeaea;
-      --muted:  #9ca3af;
-      --border: rgba(255,255,255,0.08);
+      --text:   #111111;
+      --muted:  #6B7280;
+      --border: rgba(0,0,0,0.08);
       --ntuc:   #e8231a;
       --giant:  #f5a623;
       --cold:   #0066cc;
       --sheng:  #2ecc71;
+      --nav-bg:     rgba(249,250,251,0.92);
+      --drawer-bg:  rgba(249,250,251,0.98);
+      --hero-glow:  #dcfce7;
+      --badge-text: #065f46;
+      --alert-bg:   linear-gradient(135deg,#ecfdf5 0%,#f0fdf4 100%);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --dark:   #111111;
+        --mid:    #1a1a1a;
+        --card:   #222222;
+        --text:   #eaeaea;
+        --muted:  #9ca3af;
+        --border: rgba(255,255,255,0.08);
+        --nav-bg:     rgba(17,17,17,0.92);
+        --drawer-bg:  rgba(17,17,17,0.98);
+        --hero-glow:  #0d1f14;
+        --badge-text: #6ee7b7;
+        --alert-bg:   linear-gradient(135deg,#1a1a1a 0%,#222222 100%);
+      }
     }
 
     html { scroll-behavior: smooth; }
@@ -41,7 +61,7 @@
       display: flex; align-items: center; justify-content: space-between;
       padding: 0 1.5rem;
       height: 60px;
-      background: rgba(17,25,23,0.92);
+      background: var(--nav-bg);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
     }
@@ -82,7 +102,7 @@
     .nav-drawer {
       display: none; /* toggled by JS */
       position: fixed; top: 60px; left: 0; right: 0; z-index: 99;
-      background: rgba(17,25,23,0.98);
+      background: var(--drawer-bg);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
       padding: 1rem 1.5rem;
@@ -108,12 +128,12 @@
       display: flex; flex-direction: column; align-items: center;
       text-align: center;
       padding: 5rem 1.5rem 3rem;
-      background: radial-gradient(ellipse at 50% 0%, #0a2e1e 0%, var(--dark) 70%);
+      background: radial-gradient(ellipse at 50% 0%, var(--hero-glow) 0%, var(--dark) 70%);
     }
     .badge {
       display: inline-flex; align-items: center; gap: .4rem;
       background: rgba(18,183,106,.15); border: 1px solid rgba(18,183,106,.3);
-      color: #6ee7b7; padding: .3rem .8rem; border-radius: 999px;
+      color: var(--badge-text); padding: .3rem .8rem; border-radius: 999px;
       font-size: .78rem; font-weight: 600; margin-bottom: 1.5rem;
     }
     h1 {
@@ -151,7 +171,7 @@
 
     .popular-tags { margin-top: 1rem; display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; }
     .tag {
-      background: rgba(255,255,255,.05); border: 1px solid var(--border);
+      background: rgba(0,0,0,.05); border: 1px solid var(--border);
       color: var(--muted); padding: .5rem .9rem; border-radius: 999px;
       font-size: .8rem; cursor: pointer; transition: all .2s;
       min-height: 44px; display: inline-flex; align-items: center; /* fix #6: 44pt target */
@@ -169,8 +189,13 @@
       background: var(--mid); border: 1px solid var(--border);
       border-radius: 8px; padding: .4rem .9rem;
       font-size: .8rem; font-weight: 600; color: var(--muted);
+      cursor: pointer; user-select: none; transition: opacity .2s, border-color .2s;
     }
+    .store-chip:hover { border-color: rgba(0,0,0,.18); }
+    .store-chip.active { color: var(--text); border-color: rgba(0,0,0,.2); }
+    .store-chip.inactive { opacity: .35; }
     .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .chip-soon { font-size: .6rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: .1rem .4rem; margin-left: .2rem; opacity: .7; }
 
     /* ── RESULTS SECTION ── */
     #results-section { display: none; padding: 2.5rem 1.5rem; max-width: 1100px; margin: 0 auto; }
@@ -215,10 +240,10 @@
       border-radius: 999px; white-space: nowrap; text-align: center;
     }
     .pg-badge-best { background: var(--green); color: #fff; }
-    .pg-badge-over { background: rgba(255,255,255,.08); color: var(--muted); }
+    .pg-badge-over { background: rgba(0,0,0,.06); color: var(--muted); }
 
     .pg-add {
-      background: rgba(255,255,255,.06); border: 1px solid var(--border);
+      background: rgba(0,0,0,.05); border: 1px solid var(--border);
       color: var(--text); border-radius: 5px; padding: .3rem .5rem;
       font-size: .72rem; font-weight: 700; cursor: pointer; transition: background .2s;
       white-space: nowrap; min-height: 30px; display: inline-flex; align-items: center;
@@ -250,7 +275,7 @@
     }
     .basket-table { width: 100%; border-collapse: collapse; min-width: 340px; }
     .basket-table th {
-      background: rgba(255,255,255,.04); padding: .75rem 1rem;
+      background: rgba(0,0,0,.03); padding: .75rem 1rem;
       font-size: .78rem; text-align: left; color: var(--muted); font-weight: 600;
       white-space: nowrap;
     }
@@ -267,7 +292,7 @@
     }
     .remove-btn:hover { color: var(--red); }
     .qty-btn {
-      background: rgba(255,255,255,.08); border: none; color: var(--text);
+      background: rgba(0,0,0,.07); border: none; color: var(--text);
       width: 32px; height: 32px; min-width: 32px; /* fix #2: was 22×22px */
       border-radius: 4px; cursor: pointer; font-size: .9rem;
       display: inline-flex; align-items: center; justify-content: center;
@@ -290,7 +315,7 @@
     .store-split { margin-top: 1.2rem; }
     .store-split h4 { font-size: .8rem; color: var(--muted); margin-bottom: .6rem; text-transform: uppercase; letter-spacing: .05em; }
     .split-row { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; font-size: .85rem; }
-    .split-bar-wrap { flex: 1; background: rgba(255,255,255,.06); border-radius: 999px; height: 6px; }
+    .split-bar-wrap { flex: 1; background: rgba(0,0,0,.08); border-radius: 999px; height: 6px; }
     .split-bar { height: 6px; border-radius: 999px; }
     .empty-basket { padding: 3rem 1rem; text-align: center; color: var(--muted); font-size: .9rem; }
 
@@ -305,14 +330,14 @@
     .step p { color: var(--muted); font-size: .85rem; line-height: 1.6; }
 
     /* ── ALERT BANNER ── */
-    .alert-section { padding: 3rem 1.5rem; background: linear-gradient(135deg, #0a2e1e 0%, #172320 100%); }
+    .alert-section { padding: 3rem 1.5rem; background: var(--alert-bg); }
     .alert-inner { max-width: 600px; margin: 0 auto; text-align: center; }
     .alert-inner h2 { font-size: 1.5rem; font-weight: 800; margin-bottom: .5rem; }
     .alert-inner p { color: var(--muted); margin-bottom: 1.5rem; font-size: .9rem; }
     .alert-form { display: flex; gap: .5rem; flex-wrap: wrap; /* fix #10: wraps button below input on narrow screens */ }
     .alert-form input {
       flex: 1; min-width: 200px;
-      background: rgba(255,255,255,.07); border: 1px solid var(--border);
+      background: rgba(0,0,0,.04); border: 1px solid var(--border);
       border-radius: 8px; padding: .75rem 1rem; color: var(--text);
       font-size: 1rem; /* fix #3: was .9rem (14.4px) — triggers iOS Safari zoom on focus */
       outline: none; min-height: 44px;
@@ -369,6 +394,19 @@
       .pg-badge { display: none; }
       .pg-row { grid-template-columns: 8px 1fr auto auto; }
     }
+
+    /* ── DARK MODE OVERRIDES ── */
+    @media (prefers-color-scheme: dark) {
+      .tag             { background: rgba(255,255,255,.05); }
+      .store-chip:hover  { border-color: rgba(255,255,255,.18); }
+      .store-chip.active { border-color: rgba(255,255,255,.2); }
+      .pg-badge-over   { background: rgba(255,255,255,.08); }
+      .pg-add          { background: rgba(255,255,255,.06); }
+      .basket-table th { background: rgba(255,255,255,.04); }
+      .qty-btn         { background: rgba(255,255,255,.08); }
+      .split-bar-wrap  { background: rgba(255,255,255,.06); }
+      .alert-form input { background: rgba(255,255,255,.07); }
+    }
   </style>
 </head>
 <body>
@@ -421,12 +459,12 @@
 
 <!-- ── STORES STRIP ── -->
 <div class="stores-strip">
-  <div class="store-chip"><span class="dot" style="background:#e8231a"></span> NTUC FairPrice</div>
-  <div class="store-chip"><span class="dot" style="background:#f5a623"></span> Giant <span style="font-size:.7rem;color:var(--muted);margin-left:.3rem">coming soon</span></div>
-  <div class="store-chip"><span class="dot" style="background:#0066cc"></span> Cold Storage</div>
-  <div class="store-chip"><span class="dot" style="background:#2ecc71"></span> Sheng Siong</div>
-  <div class="store-chip"><span class="dot" style="background:#e84393"></span> RedMart</div>
-  <div class="store-chip"><span class="dot" style="background:#e60012"></span> Don Don Donki</div>
+  <div class="store-chip active" data-store="ntuc" onclick="toggleStore(this)"><span class="dot" style="background:#e8231a"></span> NTUC FairPrice</div>
+  <div class="store-chip inactive" data-store="giant" style="pointer-events:none"><span class="dot" style="background:#f5a623"></span> Giant <span class="chip-soon">soon</span></div>
+  <div class="store-chip active" data-store="cold" onclick="toggleStore(this)"><span class="dot" style="background:#0066cc"></span> Cold Storage</div>
+  <div class="store-chip active" data-store="sheng" onclick="toggleStore(this)"><span class="dot" style="background:#2ecc71"></span> Sheng Siong</div>
+  <div class="store-chip active" data-store="red" onclick="toggleStore(this)"><span class="dot" style="background:#e84393"></span> RedMart</div>
+  <div class="store-chip active" data-store="donki" onclick="toggleStore(this)"><span class="dot" style="background:#e60012"></span> Don Don Donki</div>
 </div>
 
 <!-- ── RESULTS ── -->
@@ -540,27 +578,112 @@ const API = window.location.hostname === 'localhost'
   ? 'http://localhost:8000'
   : 'https://cartly-production-9eb2.up.railway.app';
 
-// ── LOGO SCRAMBLE ── //
+// ── HERO SCRAMBLE ── //
 (function() {
-  const span = document.querySelector('.logo span');
-  if (!span) return;
-  const target = 'ly';
-  const pool   = 'abcdefghijklmnopqrstuvwxyz01!#$@';
-  let frame = 0;
-  const FRAMES = 20;
-  span.textContent = pool[0] + pool[1]; // start non-empty so layout doesn't shift
-  setTimeout(() => {
+  const h1 = document.querySelector('.hero h1');
+  if (!h1) return;
+
+  const pool      = 'abcdefghijklmnopqrstuvwxyz!#$@01';
+  const groceries = [
+    { icon: '🥚', text: 'Eggs'  },
+    { icon: '🍚', text: 'Rice'  },
+    { icon: '🥛', text: 'Milk'  },
+    { icon: '🍞', text: 'Bread' },
+  ];
+  const HOLD = 247;
+
+  function rand() { return pool[Math.floor(Math.random() * pool.length)]; }
+
+  function scrambleTo(target, setHTML, onDone, ms = 35) {
+    const n = target.length;
+    const FRAMES = Math.max(10, n);
+    let frame = 0;
+    setHTML(target.split('').map(() => rand()).join(''));
     const id = setInterval(() => {
       frame++;
-      span.textContent = target.split('').map((ch, i) => {
-        return frame >= Math.round((i + 1) * FRAMES / target.length)
-          ? ch
-          : pool[Math.floor(Math.random() * pool.length)];
-      }).join('');
-      if (frame >= FRAMES) clearInterval(id);
-    }, 45);
-  }, 250);
+      const out = target.split('').map((ch, i) =>
+        frame >= Math.round((i + 1) * FRAMES / n) ? ch : rand()
+      ).join('');
+      setHTML(out);
+      if (frame >= FRAMES) {
+        clearInterval(id);
+        if (onDone) setTimeout(onDone, 0);
+      }
+    }, ms);
+  }
+
+  const fixedH = h1.offsetHeight;
+  if (fixedH) h1.style.minHeight = fixedH + 'px';
+  h1.textContent = '';
+
+  let gi = 0;
+  function nextPhase() {
+    if (gi < groceries.length) {
+      const { icon, text } = groceries[gi++];
+      // emoji is static anchor; only the word scrambles
+      scrambleTo(text, s => { h1.textContent = s + ' ' + icon; }, () => setTimeout(nextPhase, HOLD));
+    } else if (gi === groceries.length) {
+      gi++;
+      // "Cart" drifts up, then "ly" slides in from the left in green — no scramble
+      h1.innerHTML =
+        '<span style="opacity:0;display:inline-block;transform:translateY(10px);transition:opacity .38s ease,transform .38s ease">Cart</span>'
+        + '<em style="opacity:0;display:inline-block;transform:translateX(-10px);transition:opacity .16s ease .44s,transform .16s ease .44s">ly</em>';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        h1.querySelectorAll('span,em').forEach(el => {
+          el.style.opacity = '1';
+          el.style.transform = 'none';
+        });
+      }));
+      setTimeout(nextPhase, 1200);
+    } else {
+      // same fade-up/slide style as the Cartly animation
+      h1.innerHTML =
+        '<span style="opacity:0;display:block;transform:translateY(10px);transition:opacity .38s ease,transform .38s ease">Stop overpaying at</span>'
+        + '<em style="opacity:0;display:block;transform:translateY(10px);transition:opacity .38s ease .32s,transform .38s ease .32s">the supermarket.</em>';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        h1.querySelectorAll('span,em').forEach(el => {
+          el.style.opacity = '1';
+          el.style.transform = 'none';
+        });
+      }));
+      setTimeout(() => { h1.style.minHeight = ''; }, 900);
+    }
+  }
+
+  setTimeout(nextPhase, 200);
 })();
+
+// ── STORE FILTER ── //
+const _defaultStores = ['ntuc','cold','sheng','red','donki'];
+let selectedStores = new Set(JSON.parse(localStorage.getItem('cartly_stores') || JSON.stringify(_defaultStores)));
+
+function toggleStore(el) {
+  const key = el.dataset.store;
+  if (selectedStores.has(key)) {
+    if (selectedStores.size === 1) return; // keep at least one
+    selectedStores.delete(key);
+    el.classList.remove('active');
+    el.classList.add('inactive');
+  } else {
+    selectedStores.add(key);
+    el.classList.remove('inactive');
+    el.classList.add('active');
+  }
+  localStorage.setItem('cartly_stores', JSON.stringify([...selectedStores]));
+  if (_lastResults.length) renderResults(_lastQuery, _lastResults);
+}
+
+// Apply saved state on load
+document.querySelectorAll('.store-chip[data-store]').forEach(el => {
+  const key = el.dataset.store;
+  if (!el.onclick) return; // Giant (no onclick) stays as-is
+  if (!selectedStores.has(key)) {
+    el.classList.remove('active');
+    el.classList.add('inactive');
+  }
+});
+
+let _lastResults = [], _lastQuery = '';
 
 // ── STATE ── //
 let basket    = [];
@@ -611,6 +734,8 @@ async function doSearch() {
     return;
   }
 
+  _lastQuery   = q;
+  _lastResults = data.results;
   renderResults(q, data.results);
 }
 
@@ -681,15 +806,16 @@ function groupByProduct(results) {
 }
 
 function renderResults(query, results) {
-  const section = document.getElementById('results-section');
-  const grid    = document.getElementById('price-grid');
+  const section  = document.getElementById('results-section');
+  const grid     = document.getElementById('price-grid');
   section.style.display = 'block';
 
-  const groups  = groupByProduct(results);
-  const matched = groups.filter(g => g.items.length > 1).length;
+  const filtered = results.filter(r => selectedStores.has(r.store_key));
+  const groups   = groupByProduct(filtered);
+  const matched  = groups.filter(g => g.items.length > 1).length;
 
   document.getElementById('result-label').textContent =
-    `${results.length} prices · ${groups.length} products · ${matched} matched across stores`;
+    `${filtered.length} prices · ${groups.length} products · ${matched} matched across stores`;
 
   // Build maxPriceCache for savings calculation
   groups.forEach(g => {
@@ -740,7 +866,7 @@ function renderResults(query, results) {
     grid.appendChild(card);
   });
 
-  if (results.length) loadHistory(groups[0].items[0].product_id);
+  if (filtered.length) loadHistory(groups[0].items[0].product_id);
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
