@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Cartly — Singapore Grocery Price Comparison</title>
+  <title>Cartly</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90' font-family='Segoe UI,system-ui,sans-serif' font-weight='800' fill='%2312b76a'>C</text></svg>">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -397,15 +398,14 @@
 
 <!-- ── HERO ── -->
 <section class="hero">
-  <div class="badge">🇸🇬 Built for Singapore</div>
-  <h1>Stop overpaying at<br><em>the supermarket.</em></h1>
+<h1>Stop overpaying at<br><em>the supermarket.</em></h1>
   <p class="hero-sub">
-    Compare grocery prices across NTUC FairPrice, Giant, Cold Storage, Sheng Siong and RedMart — instantly. Build your weekly basket and find the cheapest split.
+    Compare grocery prices across NTUC FairPrice, Giant, Cold Storage, Sheng Siong and RedMart. Build your weekly basket and find the cheapest split.
   </p>
 
   <div class="search-wrap">
     <span>🔍</span>
-    <input id="search-input" type="text" placeholder="Search any item — e.g. eggs, milo…" />
+    <input id="search-input" type="text" placeholder="Search any item, e.g. eggs, milo" />
     <button class="search-btn" onclick="doSearch()">Compare</button>
   </div>
 
@@ -430,7 +430,7 @@
 
 <!-- ── RESULTS ── -->
 <section id="results-section">
-  <p class="section-title">Price Comparison — <span id="result-label"></span></p>
+  <p class="section-title">Price Comparison: <span id="result-label"></span></p>
 
   <div class="price-grid" id="price-grid"></div>
 
@@ -592,7 +592,7 @@ async function doSearch() {
   const grid    = document.getElementById('price-grid');
   section.style.display = 'block';
   document.getElementById('result-label').textContent = q;
-  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--muted)">⏳ Fetching live prices — this may take 15–20 s on first load…</div>';
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--muted)">⏳ Fetching live prices, this may take 15-20s on first load...</div>';
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   let data;

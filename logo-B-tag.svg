@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Dark background -->
+  <rect width="512" height="512" rx="110" fill="#111917"/>
+
+  <!--
+    A price tag — the universal symbol for "price/deal".
+    Pentagon shape: rounded rectangle with a pointed left tip.
+    Opens right, point faces left (where the string goes).
+    Stroked in green. Clean geometry.
+  -->
+  <path d="M 210,130 L 392,130 Q 420,130 420,158 L 420,354 Q 420,382 392,382 L 210,382 L 90,256 Z"
+        stroke="#12b76a" stroke-width="26" fill="none"
+        stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- String hole: circle cutout on the left tip -->
+  <circle cx="198" cy="256" r="30" stroke="#12b76a" stroke-width="24" fill="#111917"/>
+
+  <!-- Downward arrow inside tag: price going down = savings -->
+  <path d="M 308,185 L 308,305"
+        stroke="white" stroke-width="28" stroke-linecap="round" fill="none"/>
+  <path d="M 268,272 L 308,318 L 348,272"
+        stroke="white" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

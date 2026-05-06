@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Dark background -->
+  <rect width="512" height="512" rx="96" fill="#111917"/>
+
+  <!-- Cart outline (thinner, serves as frame for bars) -->
+  <path d="M 68,170 L 205,170" stroke="#12b76a" stroke-width="26" stroke-linecap="round" fill="none"/>
+  <path d="M 205,170 L 432,170 L 404,368 L 205,368 Z"
+        stroke="#12b76a" stroke-width="22" fill="none"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <line x1="205" y1="170" x2="205" y2="368" stroke="#12b76a" stroke-width="22" stroke-linecap="round"/>
+
+  <!-- Price comparison bars inside the cart -->
+  <!-- Bar 1: tall (highest price) -->
+  <rect x="232" y="222" width="44" height="118" rx="6" fill="rgba(255,255,255,0.25)"/>
+  <!-- Bar 2: medium -->
+  <rect x="294" y="258" width="44" height="82" rx="6" fill="rgba(255,255,255,0.45)"/>
+  <!-- Bar 3: shortest = cheapest = green winner -->
+  <rect x="356" y="285" width="32" height="55" rx="6" fill="#12b76a"/>
+
+  <!-- Wheels -->
+  <circle cx="258" cy="434" r="40" fill="#12b76a"/>
+  <circle cx="372" cy="434" r="40" fill="#12b76a"/>
+  <circle cx="258" cy="434" r="17" fill="#111917"/>
+  <circle cx="372" cy="434" r="17" fill="#111917"/>
+</svg>
