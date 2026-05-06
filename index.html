@@ -748,28 +748,58 @@ function extractMeta(name) {
 }
 
 function groupByProduct(results) {
-  const THRESHOLD = 0.40;
-  const STOP = new Set([
-    'the','and','for','with','per','from','each',
-    'fresh','organic','singapore','premium','new','value',
-  ]);
+  const THRESHOLD = 0.32;
+  const STOP = new Set(['the','and','for','with','per','from','each','singapore','new','value']);
+
+  // --- Gate 1: brand ---
+  function normBrand(b) { return b ? b.toLowerCase().replace(/[^a-z0-9]/g, '') : null; }
+
+  // --- Gate 2: quantity ---
+  // Parse a quantity string into {amt, dim} in base units (g, ml, ct) or null
+  function parseQty(str) {
+    if (!str) return null;
+    // "N x M unit" (e.g. "6x100ml", "12 x 1.5l")
+    let m = str.match(/(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|caps?|sachets?)\b/i);
+    if (m) return toBase(parseFloat(m[1]) * parseFloat(m[2]), m[3]);
+    // Single qty (e.g. "600g", "1.5l")
+    m = str.match(/(\d+(?:\.\d+)?)\s*(ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|caps?|sachets?)\b/i);
+    if (m) return toBase(parseFloat(m[1]), m[2]);
+    return null;
+  }
+
+  function toBase(amt, u) {
+    const k = u.toLowerCase().replace(/s$/, '');
+    const MAP = { kg:['g',1000], g:['g',1], l:['ml',1000], ml:['ml',1],
+                  oz:['g',28.35], lb:['g',453.6],
+                  pc:['ct',1], piece:['ct',1], pk:['ct',1], pack:['ct',1],
+                  tab:['ct',1], cap:['ct',1], sachet:['ct',1] };
+    const e = MAP[k];
+    return e ? { amt: amt * e[1], dim: e[0] } : null;
+  }
+
+  function qtyMatch(a, b) {
+    if (!a || !b) return true; // unknown qty → don't gate
+    if (a.dim !== b.dim) return false;
+    return Math.abs(a.amt - b.amt) / Math.max(a.amt, b.amt) < 0.12;
+  }
+
+  // --- Gate 3: IDF-weighted token similarity on qty-stripped name ---
+  const QTY_STRIP = /\b\d+(?:\.\d+)?\s*(?:[xX×]\s*\d+(?:\.\d+)?\s*)?(?:ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|caps?|sachets?)\b/gi;
 
   function kws(name) {
-    return name.toLowerCase().replace(/[^a-z0-9\s]/g,' ')
+    return name.replace(QTY_STRIP, ' ').toLowerCase().replace(/[^a-z0-9\s]/g,' ')
       .split(/\s+/).filter(w => w.length > 1 && !STOP.has(w));
   }
 
-  // IDF: words that appear in many products are less discriminating
   const freq = {};
-  results.forEach(r => kws(r.product_name).forEach(w => { freq[w] = (freq[w] || 0) + 1; }));
+  results.forEach(r => kws(r.product_name).forEach(w => { freq[w] = (freq[w]||0) + 1; }));
   const N = results.length || 1;
   function idf(w) { return Math.log((N + 1) / ((freq[w] || 0) + 1)); }
 
-  function similarity(a, b) {
+  function tokenSim(a, b) {
     const ka = kws(a), kb = kws(b);
     const setA = new Set(ka), setB = new Set(kb);
     if (!setA.size || !setB.size) return 0;
-    // IDF-weighted overlap coefficient over the smaller keyword set
     const smaller = ka.length <= kb.length ? ka : kb;
     let shared = 0, total = 0;
     for (const w of smaller) {
@@ -778,6 +808,20 @@ function groupByProduct(results) {
       if (setA.has(w) && setB.has(w)) shared += weight;
     }
     return total > 0 ? shared / total : 0;
+  }
+
+  function isSameProduct(a, b) {
+    // Gate 1: brand must match if both known
+    const bA = normBrand(a.brand), bB = normBrand(b.brand);
+    if (bA && bB && bA !== bB) return false;
+
+    // Gate 2: quantity must match if both parseable
+    const qA = parseQty(a.unit) || parseQty(a.product_name);
+    const qB = parseQty(b.unit) || parseQty(b.product_name);
+    if (!qtyMatch(qA, qB)) return false;
+
+    // Gate 3: token similarity on qty-stripped names
+    return tokenSim(a.product_name, b.product_name) >= THRESHOLD;
   }
 
   const groups = [], assigned = new Set();
@@ -789,11 +833,8 @@ function groupByProduct(results) {
     for (let j = i + 1; j < results.length; j++) {
       if (assigned.has(j)) continue;
       const r2 = results[j];
-      if (items.some(x => x.store_key === r2.store_key)) continue; // one per store
-      if (similarity(r.product_name, r2.product_name) >= THRESHOLD) {
-        items.push(r2);
-        assigned.add(j);
-      }
+      if (items.some(x => x.store_key === r2.store_key)) continue;
+      if (isSameProduct(r, r2)) { items.push(r2); assigned.add(j); }
     }
     groups.push({
       displayName: r.product_name,
