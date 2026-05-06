@@ -21,7 +21,7 @@ _EXTRACT_JS = """() => {
     const priceRe   = /^\\$?(\\d+\\.\\d{2})$/;
     const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
     const promoSel  = '[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]';
-    const promoRe   = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|(?:any\\s+)?\\d+\\s+(?:for|@)\\s+\\$[\\d.]+/i;
+    const promoRe   = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|(?:any\\s+)?\\d+\\s+(?:for|@|at)\\s+\\$[\\d.]+/i;
     // Pre-scan for section-level promo islands
     const promoIslands = [];
     for (const el of document.querySelectorAll('div,section,li,article,span')) {
