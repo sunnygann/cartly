@@ -1,15 +1,28 @@
 """
 Don Don Donki scraper.
-Donki SG has no direct online store. Products are available via GrabMart
-at their merchant page. We navigate to the merchant, search within it,
-and extract prices from the rendered DOM.
+Donki SG has no direct online store. We scrape their Lazada SG brand page
+which lists their products with prices.
 """
 import asyncio
 from datetime import datetime
+from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
 from ._base import _EXTRACT_JS, _UA
 
-_MERCHANT_URL = "https://mart.grab.com/sg/en/merchant/4-C4CKC8NAVK2ETJ"
+_URLS = [
+    "https://www.lazada.sg/catalog/?q=don+don+donki+{}&from=input",
+    "https://www.lazada.sg/catalog/?q={}&from=input&seller_type=official&brand=don-don-donki",
+]
+
+_SKIP_WORDS = {"the","and","for","with","per","from","each","in","of","a","an","to","at","is","it"}
+
+
+def _is_relevant(name: str, query: str) -> bool:
+    name_l  = name.lower()
+    q_words = [w for w in query.lower().split() if len(w) > 2 and w not in _SKIP_WORDS]
+    if not q_words:
+        return True
+    return any(w in name_l for w in q_words)
 
 
 async def search_donki(query: str, limit: int = 20) -> list[dict]:
@@ -22,42 +35,39 @@ async def search_donki(query: str, limit: int = 20) -> list[dict]:
         )
         page = await ctx.new_page()
 
-        try:
-            await page.goto(_MERCHANT_URL, wait_until="load", timeout=30_000)
-            await asyncio.sleep(3)
-        except Exception as exc:
-            print(f"[donki] page load failed: {exc}")
-            await browser.close()
-            return []
-
-        # Try to find and use search input within the merchant page
-        search_sel = "input[type='search'], input[placeholder*='search' i], input[placeholder*='Search' i]"
-        search_input = await page.query_selector(search_sel)
-        if search_input:
-            await search_input.click()
-            await search_input.fill(query)
-            await search_input.press("Enter")
+        raw = []
+        for url_tmpl in _URLS:
+            url = url_tmpl.format(quote_plus(query))
             try:
-                await page.wait_for_load_state("networkidle", timeout=8_000)
-            except Exception:
-                pass
-            await asyncio.sleep(2)
+                await page.goto(url, wait_until="load", timeout=30_000)
+                try:
+                    await page.wait_for_selector("[class*='product' i], [class*='item' i]", timeout=8_000)
+                except Exception:
+                    pass
+                await asyncio.sleep(3)
+            except Exception as exc:
+                print(f"[donki] {url} failed: {exc}")
+                continue
 
-        title = await page.title()
-        print(f"[donki] loaded: {title} | {page.url}")
+            title = await page.title()
+            print(f"[donki] loaded: {title} | {page.url}")
+            raw = await page.evaluate(_EXTRACT_JS)
+            print(f"[donki] DOM extracted {len(raw)} price nodes")
 
-        raw = await page.evaluate(_EXTRACT_JS)
-        print(f"[donki] DOM extracted {len(raw)} price nodes")
+            relevant = [r for r in raw if _is_relevant(r.get("name", ""), query)]
+            print(f"[donki] relevant after filter: {len(relevant)}")
+            if relevant:
+                raw = relevant
+                break
+            raw = []
+
         await browser.close()
 
     products = []
-    q_words = [w for w in query.lower().split() if len(w) > 2]
-    for item in raw[:limit * 2]:
+    for item in raw[:limit]:
         name  = (item.get("name") or "").strip()
         price = item.get("price")
         if not name or not price:
-            continue
-        if q_words and not any(w in name.lower() for w in q_words):
             continue
         products.append({
             "name": name, "brand": "", "price": float(price),
@@ -66,8 +76,6 @@ async def search_donki(query: str, limit: int = 20) -> list[dict]:
             "category": "", "store": "donki",
             "scraped_at": datetime.utcnow(),
         })
-        if len(products) >= limit:
-            break
 
     print(f"[donki] parsed {len(products)} products")
     return products
