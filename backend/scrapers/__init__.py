@@ -3,6 +3,7 @@ from .shengsiong  import search_shengsiong
 from .giant       import search_giant
 from .coldstorage import search_coldstorage
 from .redmart     import search_redmart
+from .donki       import search_donki
 
 SCRAPERS = {
     "ntuc":  search_ntuc,
@@ -10,4 +11,5 @@ SCRAPERS = {
     "giant": search_giant,
     "cold":  search_coldstorage,
     "red":   search_redmart,
+    "donki": search_donki,
 }

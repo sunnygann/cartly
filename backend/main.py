@@ -27,6 +27,7 @@ STORES_SEED = [
     {"key": "cold",  "name": "Cold Storage",    "color": "#0066cc"},
     {"key": "sheng", "name": "Sheng Siong",     "color": "#2ecc71"},
     {"key": "red",   "name": "RedMart",         "color": "#e84393"},
+    {"key": "donki", "name": "Don Don Donki",   "color": "#e60012"},
 ]
 
 PRICE_TTL_HOURS = 6  # scrape again after this many hours

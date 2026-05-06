@@ -36,7 +36,7 @@ async def search_giant(query: str, limit: int = 20) -> list[dict]:
     ip = await _resolve_via_doh(_ALGOLIA_HOST)
 
     if not ip:
-        print("[giant] could not resolve Algolia host via SG DNS")
+        print("[giant] Algolia host not resolvable from this network (requires SG ISP)")
         return []
 
     headers = {
