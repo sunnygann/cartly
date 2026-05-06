@@ -156,9 +156,39 @@ async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
 
     print(f"[ntuc] DOM extracted {len(raw)} price nodes")
 
+    import re
+    def clean_name(n: str) -> str:
+        if not n:
+            return ''
+        n = re.sub(r'\$\d+(?:\.\d+)?', '', n)
+        n = re.sub(r'add\s+to\s+cart', '', n, flags=re.IGNORECASE)
+        n = re.sub(r'\d+\.\d+\s*\(\d+\)', '', n)
+        n = re.sub(r'\s+', ' ', n).strip()
+        return n
+
     products = []
     for item in raw[:limit]:
-        name  = (item.get("name") or "").strip()
+        name  = clean_name((item.get("name") or "").strip())
+        price = item.get("price")
+        if not name or not price:
+            continue
+        orig = item.get("original_price")
+        products.append({
+            "name":           name,
+            "brand":          "",
+            "price":          float(price),
+            "original_price": float(orig) if orig else None,
+            "promo":          item.get("promo") or None,
+            "unit":           "",
+            "image":          item.get("image", ""),
+            "barcode":        None,
+            "category":       "",
+            "store":          "ntuc",
+            "scraped_at":     datetime.utcnow(),
+        })
+
+    print(f"[ntuc] parsed {len(products)} products")
+    return products
         price = item.get("price")
         if not name or not price:
             continue
