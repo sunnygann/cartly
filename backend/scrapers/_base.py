@@ -51,14 +51,12 @@ _EXTRACT_JS = """() => {
                         if (c.children.length > 0) continue;
                         const t = c.textContent.trim();
                         if (t.length > 5 && t.length < 250 &&
-                            !t.match(/^\\$?[\\d.,\\s]+$/) &&
-            !t.match(/^(add|view|buy|shop|more|sale|off|promo|per|kg|g\\b)/i) &&
-            // ⬇️ new anti‑garbage checks ⬇️
-            !t.includes('$') &&
-            !/add\s+to\s+cart/i.test(t) &&
-            !/\d+\.\d+\s*\(\d+\)/.test(t)) {
-            name = t;
-            break;
+                            !t.match(/^\\$?[\\d.,\\s%]+$/) &&
+                            !t.match(/^(add|view|buy|shop|more|sale|off|promo|per|\\d+g\\b)/i) &&
+                            !t.includes('$') &&
+                            !/add\\s+to\\s+cart/i.test(t) &&
+                            !/\\d+\\.\\d+\\s*\\(\\d+\\)/.test(t)) {
+                            name = t; break;
                         }
                     }
                 }

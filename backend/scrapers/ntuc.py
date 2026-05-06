@@ -50,7 +50,7 @@ _EXTRACT_JS = """() => {
         for (let i = 0; i < 10; i++) {
             if (!el || el === document.body) break;
 
-            // Phase 1: find product name + image (only until we have both)
+            // Phase 1: find product name + image
             if (!foundCard) {
                 if (!name) {
                     const candidates = el.querySelectorAll('span,p,a,h1,h2,h3,h4,h5');
@@ -58,14 +58,13 @@ _EXTRACT_JS = """() => {
                         if (c.children.length > 0) continue;
                         const t = c.textContent.trim();
                         if (t.length > 5 && t.length < 250 &&
-          			!t.match(/^\\$?[\\d.,\\s]+$/) &&
-            			!t.match(/^(add|view|buy|shop|more|sale|off|promo|per|kg|g\\b)/i) &&
-            			// ⬇️ new anti‑garbage checks ⬇️
-            			!t.includes('$') &&
-            			!/add\s+to\s+cart/i.test(t) &&
-            			!/\d+\.\d+\s*\(\d+\)/.test(t)) {
-            			name = t;
-            			break;
+                            !t.match(/^\\$?[\\d.,\\s]+$/) &&
+                            !t.match(/^(add|view|buy|shop|more|sale|off|promo|per|kg|g\\b)/i) &&
+                            !t.includes('$') &&
+                            !/add\\s+to\\s+cart/i.test(t) &&
+                            !/\\d+\\.\\d+\\s*\\(\\d+\\)/.test(t)) {
+                            name = t;
+                            break;
                         }
                     }
                 }
@@ -78,7 +77,7 @@ _EXTRACT_JS = """() => {
                 if (name && img) foundCard = true;
             }
 
-            // Phase 2: promo detection (keep climbing even after card is found)
+            // Phase 2: promo detection (keep climbing)
             if (i >= 1) {
                 if (!promoText) {
                     for (const p of el.querySelectorAll(promoSel)) {
@@ -111,7 +110,7 @@ _EXTRACT_JS = """() => {
                 }
             }
 
-            // Keep climbing to capture section-level promos even after card found
+            // Keep climbing to capture section-level promos
             if (foundCard && i >= 7) break;
             el = el.parentElement;
         }
