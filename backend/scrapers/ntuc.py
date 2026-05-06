@@ -56,26 +56,14 @@ _EXTRACT_JS = """() => {
                     const candidates = el.querySelectorAll('span,p,a,h1,h2,h3,h4,h5');
                     for (const c of candidates) {
                         if (c.children.length > 0) continue;
-                        // Use first text node
-                        let t = '';
-                        for (const n of c.childNodes) {
-                            if (n.nodeType === 3) { t = n.textContent.trim(); break; }
+                        const t = c.textContent.trim();
+                        if (t.length > 5 && t.length < 250 &&
+                            !t.match(/^\\$?[\\d.,\\s]+$/) &&
+                            !t.match(/^(add|view|buy|shop|more|sale|off|promo|per|kg|g\\b)/i)) {
+                            name = t;
+                            break;
                         }
-                        // Fallback to textContent if no text node (should not happen, but defensive)
-                        if (!t) t = c.textContent.trim();
-                        if (!t || t.length < 5 || t.length > 120) continue;
-                        if (t.match(/^\\$?[\\d.,\\s]+$/)) continue;
-                        if (/^(add|buy|shop|view|more|sale|off|save|promo|per|kg|g\\b)/i.test(t)) continue;
-                        // Crucial: reject text that contains inline price, weight, rating, add-to-cart
-                        if (/\\$\\d+/.test(t)) continue;          // has a price
-                        if (/\\d+g\\b/i.test(t)) continue;        // weight
-                        if (/\\d\\.\\d/.test(t)) continue;        // rating
-                        if (/add\\s+to\\s+cart/i.test(t)) continue;
-                        if (/\\(\\d+\\)/.test(t)) continue;       // rating count
-                        name = t;
-                        break;
                     }
-                }
                 }
 
                 if (!img) {

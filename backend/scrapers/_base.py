@@ -49,24 +49,13 @@ _EXTRACT_JS = """() => {
                 if (!name) {
                     for (const c of el.querySelectorAll('span,p,a,h1,h2,h3,h4,h5')) {
                         if (c.children.length > 0) continue;
-                        // Try first text node
-                        let t = '';
-                        for (const n of c.childNodes) {
-                            if (n.nodeType === 3) { t = n.textContent.trim(); break; }
+                        const t = c.textContent.trim();
+                        if (t.length > 5 && t.length < 250 &&
+                            !t.match(/^\\$?[\\d.,\\s%]+$/) &&
+                            !t.match(/^(add|view|buy|shop|more|sale|off|promo|per|\\d+g\\b)/i)) {
+                            name = t; break;
                         }
-                        // Fallback to full textContent if no direct text
-                        if (!t) t = c.textContent.trim();
-                        if (!t || t.length < 3 || t.length > 120) continue;
-                        if (t.match(/^\\$?[\\d.,\\s%]+$/)) continue;
-                        if (/^(add|buy|shop|view|more|sale|off|save|promo|per|\\d+g\\b)/i.test(t)) continue;
-                        if (/\\$\\d+/.test(t)) continue;
-                        if (/\\d+g\\b/i.test(t)) continue;
-                        if (/\\d\\.\\d/.test(t)) continue;
-                        if (/add\\s+to\\s+cart/i.test(t)) continue;
-                        if (/\\(\\d+\\)/.test(t)) continue;
-                        name = t; break;
                     }
-                }
                 }
                 if (!img) {
                     const imgEl = el.querySelector('img');
