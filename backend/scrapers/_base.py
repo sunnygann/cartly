@@ -15,10 +15,22 @@ _EXTRACT_JS = """() => {
     const priceRe   = /^\\$?(\\d+\\.\\d{2})$/;
     const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
     const promoSel  = '[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]';
-    const promoRe   = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|\\d+\\s+for\\s+\\$[\\d.]+/i;
-    const seen      = new Set();
-    const results   = [];
-    const iter      = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
+    const promoRe   = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|(?:any\\s+)?\\d+\\s+(?:for|@)\\s+\\$[\\d.]+/i;
+
+    // Pre-scan: collect section-level promo islands (e.g. "Any 2 @ $22.00" banners
+    // that sit above a product grid rather than inside each card).
+    const promoIslands = [];
+    for (const el of document.querySelectorAll('div,section,li,article,span')) {
+        if (el.children.length > 6) continue;
+        const t = el.textContent.trim();
+        if (t.length > 3 && t.length < 100 && promoRe.test(t)) {
+            promoIslands.push({ el, text: t });
+        }
+    }
+
+    const seen    = new Set();
+    const results = [];
+    const iter    = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = iter.nextNode())) {
         const txt = node.textContent.trim();
@@ -28,7 +40,7 @@ _EXTRACT_JS = """() => {
         if (price < 0.10 || price > 999) continue;
 
         let el = node.parentElement, name = '', img = '', origPrice = null, promoText = null;
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 10; i++) {
             if (!el || el === document.body) break;
             if (!name) {
                 for (const c of el.querySelectorAll('span,p,a,h1,h2,h3,h4,h5')) {
@@ -45,28 +57,34 @@ _EXTRACT_JS = """() => {
                 const imgEl = el.querySelector('img');
                 if (imgEl) img = imgEl.src || imgEl.dataset.src || '';
             }
-            if (i >= 1) {
-                if (!origPrice) {
-                    for (const d of el.querySelectorAll(strikeSel)) {
-                        const t = d.textContent.trim();
-                        const pm = t.match(/^\\$?(\\d+\\.\\d{2})$/);
-                        if (pm) {
-                            const op = parseFloat(pm[1]);
-                            if (op > price) { origPrice = op; break; }
-                        }
+            if (i >= 1 && !promoText) {
+                // Per-card badge (class-name based)
+                for (const p of el.querySelectorAll(promoSel)) {
+                    const t = p.textContent.trim();
+                    if (promoRe.test(t) && t.length < 80) { promoText = t; break; }
+                }
+                // Per-card badge (leaf text)
+                if (!promoText) {
+                    for (const c of el.querySelectorAll('span,div,p')) {
+                        if (c.children.length > 0) continue;
+                        const t = c.textContent.trim();
+                        if (promoRe.test(t) && t.length < 80) { promoText = t; break; }
                     }
                 }
+                // Section-level island: promo block is a sibling/cousin of product grid
                 if (!promoText) {
-                    for (const p of el.querySelectorAll(promoSel)) {
-                        const t = p.textContent.trim();
-                        if (promoRe.test(t) && t.length < 50) { promoText = t; break; }
+                    for (const { el: pe, text } of promoIslands) {
+                        if (el.contains(pe)) { promoText = text; break; }
                     }
-                    if (!promoText) {
-                        for (const c of el.querySelectorAll('span,div,p')) {
-                            if (c.children.length > 0) continue;
-                            const t = c.textContent.trim();
-                            if (promoRe.test(t) && t.length < 50) { promoText = t; break; }
-                        }
+                }
+            }
+            if (!origPrice && i >= 1) {
+                for (const d of el.querySelectorAll(strikeSel)) {
+                    const t = d.textContent.trim();
+                    const pm = t.match(/^\\$?(\\d+\\.\\d{2})$/);
+                    if (pm) {
+                        const op = parseFloat(pm[1]);
+                        if (op > price) { origPrice = op; break; }
                     }
                 }
             }
