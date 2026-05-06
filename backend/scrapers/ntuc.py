@@ -56,10 +56,19 @@ _EXTRACT_JS = """() => {
                     const candidates = el.querySelectorAll('span,p,a,h1,h2,h3,h4,h5');
                     for (const c of candidates) {
                         if (c.children.length > 0) continue;
-                        const t = c.textContent.trim();
-                        if (t.length > 5 && t.length < 250 &&
+                        // Use first text node only (not descendant-concatenated textContent)
+                        let t = '';
+                        for (const n of c.childNodes) {
+                            if (n.nodeType === 3) { t = n.textContent.trim(); break; }
+                        }
+                        if (!t) continue;
+                        if (t.length > 5 && t.length < 120 &&
                             !t.match(/^\\$?[\\d.,\\s]+$/) &&
-                            !t.match(/^(add|view|buy|shop|more|sale|off|promo|per|kg|g\\b)/i)) {
+                            !t.match(/^(add|buy|shop|view|more|sale|off|save|promo|per|kg|g\\b)/i) &&
+                            !t.match(/\\d\\.\\d/) &&  // skip rating text like "4.5"
+                            !t.match(/\\d+g\\b/) &&   // skip weight like "360g"
+                            !t.match(/^\\d+$/) &&     // skip pure numbers
+                            !t.match(/\\(\\d+\\)/)) { // skip "(129)" rating counts
                             name = t;
                             break;
                         }
