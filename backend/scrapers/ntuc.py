@@ -22,13 +22,12 @@ _UA = (
 _EXTRACT_JS = """() => {
     const priceRe = /^\\$?(\\d+\\.\\d{2})$/;
     const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
-    const promoSel = '[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]';
     const promoRe = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|(?:any\\s+)?\\d+\\s+(?:for|@|at)\\s+\\$[\\d.]+/i;
     const promoJunk = /add\\s+to\\s+cart|\\d+\\.\\d+\\s*\\(\\d+\\)/i;
 
-    const cards = new Map();  // key: card element → array of {node, price, isStrike}
+    const cards = new Map();  // key: card element → array of {node, price, insideStrike}
 
-    // First pass: locate all price nodes and find their enclosing card (a common ancestor that contains an image)
+    // First pass: locate all price nodes and find their enclosing card (common ancestor that contains an <img>)
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = iter.nextNode())) {
@@ -74,27 +73,22 @@ _EXTRACT_JS = """() => {
 
         if (nonStrikePrices.length > 0) {
             salePrice = Math.min(...nonStrikePrices);
-            // original is the highest price, preferably from a strike element but could also be a higher non-strike if no strikes
             const allHigher = [...strikePrices, ...nonStrikePrices.filter(p => p > salePrice)];
             if (allHigher.length > 0) originalPrice = Math.max(...allHigher);
         } else {
-            // If all prices are inside strikes (unlikely), pick the smallest as sale and largest as original
             salePrice = Math.min(...strikePrices);
             if (strikePrices.length > 1) originalPrice = Math.max(...strikePrices);
         }
 
         // --- Extract product name ---
         let name = '';
-        // Strategy 1: look for an <a> tag that is likely the product title (often has an href and no image)
         const link = card.querySelector('a[href]');
         if (link && !link.querySelector('img')) {
             const t = link.textContent.replace(/\\s+/g, ' ').trim();
             if (t.length > 4 && t.length < 250 && !t.match(/\\$/)) name = t;
         }
-        // Fallback strategy 2: deepest element containing text but not a price
         if (!name) {
             const allTextEls = card.querySelectorAll('span, p, a, h1, h2, h3, h4, h5');
-            // Pick the longest text that doesn't look like a price
             let best = '';
             for (const el of allTextEls) {
                 if (el.children.length > 0) continue;
@@ -112,10 +106,23 @@ _EXTRACT_JS = """() => {
         const image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
 
         // --- Extract promo text ---
+        // ★ Improved: scan ALL text nodes in the card for promo pattern,
+        // then fall back to class‑based elements.
         let promoText = null;
-        for (const pEl of card.querySelectorAll(promoSel)) {
-            const t = pEl.textContent.trim();
-            if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
+        const textWalker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+        let tnode;
+        while (tnode = textWalker.nextNode()) {
+            const t = tnode.textContent.trim();
+            if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) {
+                promoText = t;
+                break;
+            }
+        }
+        if (!promoText) {
+            for (const pEl of card.querySelectorAll('[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]')) {
+                const t = pEl.textContent.trim();
+                if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
+            }
         }
 
         results.push({
