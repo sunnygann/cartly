@@ -40,7 +40,7 @@ _EXTRACT_JS = """() => {
         let el = node.parentElement;
         let card = null;
         // Walk up to find an element that contains an <img>
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
             // Require at least 2 children to avoid tiny image wrappers
             if (el.querySelector('img') && el.children.length >= 2) {
