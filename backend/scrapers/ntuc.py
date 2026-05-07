@@ -42,7 +42,8 @@ _EXTRACT_JS = """() => {
         // Walk up to find an element that contains an <img>
         for (let i = 0; i < 12; i++) {
             if (!el || el === document.body) break;
-            if (el.querySelector('img')) {
+            // Require at least 2 children to avoid tiny image wrappers
+            if (el.querySelector('img') && el.children.length >= 2) {
                 card = el;
                 break;
             }
