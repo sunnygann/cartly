@@ -17,110 +17,114 @@ _UA = (
 )
 
 # JS injected into the page to extract products without knowing class names
+# Replace _EXTRACT_JS inside ntuc.py with this version
+
 _EXTRACT_JS = """() => {
-    const priceRe   = /^\\$?(\\d+\\.\\d{2})$/;
+    const priceRe = /^\\$?(\\d+\\.\\d{2})$/;
     const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
-    const promoSel  = '[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]';
-    const promoRe   = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|(?:any\\s+)?\\d+\\s+(?:for|@|at)\\s+\\$[\\d.]+/i;
+    const promoSel = '[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]';
+    const promoRe = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|(?:any\\s+)?\\d+\\s+(?:for|@|at)\\s+\\$[\\d.]+/i;
     const promoJunk = /add\\s+to\\s+cart|\\d+\\.\\d+\\s*\\(\\d+\\)/i;
-    // Pre-scan for section-level promo islands
-    const promoIslands = [];
-    for (const el of document.querySelectorAll('div,section,li,article,span')) {
-        if (el.children.length > 6) continue;
-        const t = el.textContent.trim();
-        if (t.length > 3 && t.length < 60 && promoRe.test(t) && !promoJunk.test(t)) {
-            promoIslands.push({ el, text: t });
-        }
-    }
 
-    const seen    = new Set();
-    const results = [];
+    const cards = new Map();  // key: card element → array of {node, price, isStrike}
 
+    // First pass: locate all price nodes and find their enclosing card (a common ancestor that contains an image)
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = iter.nextNode())) {
         const txt = node.textContent.trim();
-        const m   = txt.match(priceRe);
+        const m = txt.match(priceRe);
         if (!m) continue;
         const price = parseFloat(m[1]);
         if (price < 0.10 || price > 999) continue;
 
-        let el = node.parentElement, name = '', img = '', origPrice = null, promoText = null;
-        let foundCard = false;
-
-        for (let i = 0; i < 10; i++) {
+        let el = node.parentElement;
+        let card = null;
+        // Walk up to find an element that contains an <img>
+        for (let i = 0; i < 12; i++) {
             if (!el || el === document.body) break;
-
-            // Phase 1: find product name + image
-            if (!foundCard) {
-                if (!name) {
-                    const candidates = el.querySelectorAll('span,p,a,h1,h2,h3,h4,h5');
-                    for (const c of candidates) {
-                        if (c.children.length > 0) continue;
-                        const t = c.textContent.trim();
-                        if (t.length > 5 && t.length < 250 &&
-                            !t.match(/^\\$?[\\d.,\\s]+$/) &&
-                            !t.match(/^(add|view|buy|shop|more|sale|off|promo|per|kg|g\\b)/i) &&
-                            !t.includes('$') &&
-                            !/add\\s+to\\s+cart/i.test(t) &&
-                            !/\\d+\\.\\d+\\s*\\(\\d+\\)/.test(t)) {
-                            name = t;
-                            break;
-                        }
-                    }
-                }
-
-                if (!img) {
-                    const imgEl = el.querySelector('img');
-                    if (imgEl) img = imgEl.src || imgEl.dataset.src || '';
-                }
-
-                if (name && img) foundCard = true;
+            if (el.querySelector('img')) {
+                card = el;
+                break;
             }
-
-            // Phase 2: promo detection (keep climbing)
-            if (i >= 1) {
-                if (!promoText) {
-                    for (const p of el.querySelectorAll(promoSel)) {
-                        const t = p.textContent.trim();
-                        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
-                    }
-                    if (!promoText) {
-                        for (const c of el.querySelectorAll('span,div,p')) {
-                            if (c.children.length > 0) continue;
-                            const t = c.textContent.trim();
-                            if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
-                        }
-                    }
-                    if (!promoText) {
-                        for (const { el: pe, text } of promoIslands) {
-                            if (el.contains(pe)) { promoText = text; break; }
-                        }
-                    }
-                }
-
-                if (!origPrice) {
-                    for (const d of el.querySelectorAll(strikeSel)) {
-                        const t = d.textContent.trim();
-                        const pm = t.match(/^\\$?(\\d+\\.\\d{2})$/);
-                        if (pm) {
-                            const op = parseFloat(pm[1]);
-                            if (op > price) { origPrice = op; break; }
-                        }
-                    }
-                }
-            }
-
-            // Keep climbing to capture section-level promos
-            if (foundCard && i >= 7) break;
             el = el.parentElement;
         }
+        if (!card) continue;
 
+        // Determine if this price is inside a strike element (original price)
+        let insideStrike = false;
+        let p = node.parentElement;
+        while (p && p !== card && p !== document.body) {
+            if (p.matches(strikeSel)) { insideStrike = true; break; }
+            p = p.parentElement;
+        }
+
+        if (!cards.has(card)) cards.set(card, []);
+        cards.get(card).push({ node, price, insideStrike });
+    }
+
+    const results = [];
+    for (const [card, prices] of cards.entries()) {
+        if (prices.length === 0) continue;
+
+        // --- Determine the best (sale) price and original price ---
+        let salePrice = null, originalPrice = null;
+        const nonStrikePrices = prices.filter(p => !p.insideStrike).map(p => p.price);
+        const strikePrices = prices.filter(p => p.insideStrike).map(p => p.price);
+
+        if (nonStrikePrices.length > 0) {
+            salePrice = Math.min(...nonStrikePrices);
+            // original is the highest price, preferably from a strike element but could also be a higher non-strike if no strikes
+            const allHigher = [...strikePrices, ...nonStrikePrices.filter(p => p > salePrice)];
+            if (allHigher.length > 0) originalPrice = Math.max(...allHigher);
+        } else {
+            // If all prices are inside strikes (unlikely), pick the smallest as sale and largest as original
+            salePrice = Math.min(...strikePrices);
+            if (strikePrices.length > 1) originalPrice = Math.max(...strikePrices);
+        }
+
+        // --- Extract product name ---
+        let name = '';
+        // Strategy 1: look for an <a> tag that is likely the product title (often has an href and no image)
+        const link = card.querySelector('a[href]');
+        if (link && !link.querySelector('img')) {
+            const t = link.textContent.replace(/\\s+/g, ' ').trim();
+            if (t.length > 4 && t.length < 250 && !t.match(/\\$/)) name = t;
+        }
+        // Fallback strategy 2: deepest element containing text but not a price
+        if (!name) {
+            const allTextEls = card.querySelectorAll('span, p, a, h1, h2, h3, h4, h5');
+            // Pick the longest text that doesn't look like a price
+            let best = '';
+            for (const el of allTextEls) {
+                if (el.children.length > 0) continue;
+                const t = el.textContent.trim();
+                if (t.length > 4 && t.length < 250 && !t.match(/^\\$?[\\d.,\\s]+$/) && !t.includes('$')) {
+                    if (t.length > best.length) best = t;
+                }
+            }
+            name = best;
+        }
         if (!name) continue;
-        const key = name + '|' + price;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        results.push({ name, price, image: img, original_price: origPrice, promo: promoText });
+
+        // --- Extract image ---
+        const imgEl = card.querySelector('img');
+        const image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
+
+        // --- Extract promo text ---
+        let promoText = null;
+        for (const pEl of card.querySelectorAll(promoSel)) {
+            const t = pEl.textContent.trim();
+            if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
+        }
+
+        results.push({
+            name,
+            price: salePrice,
+            image,
+            original_price: originalPrice,
+            promo: promoText
+        });
     }
     return results;
 }"""
