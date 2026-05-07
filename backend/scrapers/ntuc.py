@@ -22,12 +22,13 @@ _EXTRACT_JS = """() => {
     const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
     const promoSel  = '[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]';
     const promoRe   = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|(?:any\\s+)?\\d+\\s+(?:for|@|at)\\s+\\$[\\d.]+/i;
+    const promoJunk = /add\\s+to\\s+cart|\\d+\\.\\d+\\s*\\(\\d+\\)/i;
     // Pre-scan for section-level promo islands
     const promoIslands = [];
     for (const el of document.querySelectorAll('div,section,li,article,span')) {
         if (el.children.length > 6) continue;
         const t = el.textContent.trim();
-        if (t.length > 3 && t.length < 100 && promoRe.test(t)) {
+        if (t.length > 3 && t.length < 60 && promoRe.test(t) && !promoJunk.test(t)) {
             promoIslands.push({ el, text: t });
         }
     }
@@ -82,13 +83,13 @@ _EXTRACT_JS = """() => {
                 if (!promoText) {
                     for (const p of el.querySelectorAll(promoSel)) {
                         const t = p.textContent.trim();
-                        if (promoRe.test(t) && t.length < 80) { promoText = t; break; }
+                        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
                     }
                     if (!promoText) {
                         for (const c of el.querySelectorAll('span,div,p')) {
                             if (c.children.length > 0) continue;
                             const t = c.textContent.trim();
-                            if (promoRe.test(t) && t.length < 80) { promoText = t; break; }
+                            if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
                         }
                     }
                     if (!promoText) {

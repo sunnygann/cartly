@@ -859,6 +859,8 @@ function groupByProduct(results) {
 
 function normalizePromo(text) {
   if (!text) return null;
+  // Reject garbage: real promo labels are short and don't contain cart/rating noise
+  if (text.length > 60 || /add\s+to\s+cart/i.test(text) || /\d+\.\d+\s*\(\d+\)/.test(text)) return null;
   const m = text.match(/buy\s+(\d+)\s+get\s+(\d+)/i);
   if (m) return `${m[1]}+${m[2]} Free`;
   return text.replace(/\s+/g, ' ').trim();
