@@ -125,7 +125,18 @@ _EXTRACT_JS = """() => {
                 if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
             }
         }
-
+        // If still no promo found, check the card's parent element as well
+        if (!promoText && card.parentElement) {
+            const parentWalker = document.createTreeWalker(card.parentElement, NodeFilter.SHOW_TEXT);
+            let pnode;
+            while (pnode = parentWalker.nextNode()) {
+                const t = pnode.textContent.trim();
+                if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) {
+                    promoText = t;
+                    break;
+                }
+            }
+        }
         results.push({
             name,
             price: salePrice,
