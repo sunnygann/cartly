@@ -191,23 +191,3 @@ async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
 
     print(f"[ntuc] parsed {len(products)} products")
     return products
-        price = item.get("price")
-        if not name or not price:
-            continue
-        orig = item.get("original_price")
-        products.append({
-            "name":           name,
-            "brand":          "",
-            "price":          float(price),
-            "original_price": float(orig) if orig else None,
-            "promo":          item.get("promo") or None,
-            "unit":           "",
-            "image":          item.get("image", ""),
-            "barcode":        None,
-            "category":       "",
-            "store":          "ntuc",
-            "scraped_at":     datetime.utcnow(),
-        })
-
-    print(f"[ntuc] parsed {len(products)} products")
-    return products
