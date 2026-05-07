@@ -163,6 +163,7 @@ async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
         n = re.sub(r'\$\d+(?:\.\d+)?', '', n)
         n = re.sub(r'add\s+to\s+cart', '', n, flags=re.IGNORECASE)
         n = re.sub(r'\d+\.\d+\s*\(\d+\)', '', n)
+        n = re.sub(r'^(?:any\s+\d+\s+(?:at|for|@)\s*|\d+\s+(?:for|@|at)\s*|buy\s+\d+\s+get\s+\d+\s*)', '', n, flags=re.IGNORECASE)
         n = re.sub(r'\s+', ' ', n).strip()
         return n
 

@@ -866,7 +866,9 @@ function normalizePromo(text) {
 
 function cleanProductName(raw) {
   if (!raw) return '';
-  // If the name contains garbage (price, rating, add-to-cart), extract the real name
+  // Strip promo prefixes that bleed into scraped names (e.g. "Any 2 At ", "3 For ", "2 @ ")
+  raw = raw.replace(/^(?:any\s+\d+\s+(?:at|for|@)\s*|\d+\s+(?:for|@|at)\s*|buy\s+\d+\s+get\s+\d+\s*)/i, '').trim();
+  // If the name still contains garbage (price, rating, add-to-cart), extract the real name
   if (/\$\d+\.?\d*/.test(raw) || /add\s+to\s+cart/i.test(raw) || /\d+\.\d+\s*\(\d+\)/.test(raw)) {
     // Take the part before the first dollar sign or "add to cart"
     const m = raw.match(/^(.*?)(?:\$\d+\.?\d*|add\s+to\s+cart)/i);
@@ -934,7 +936,11 @@ const { clean, sub: parsedSub } = extractMeta(cleanRaw);
             : isMulti
               ? `<span class="pg-badge pg-badge-over">+${pct}%</span>`
               : `<span class="pg-badge"></span>`;
-      const priceHtml = hasMarkdown
+      // Suppress strikethrough when the promo text already references the original_price
+      // (e.g. "Any 2 At $19.90" — $19.90 is a bundle price, not a single-item "was" price)
+      const promoMentionsOriginal = promoLabel && item.original_price &&
+        promoLabel.includes(`$${item.original_price.toFixed(2)}`);
+      const priceHtml = hasMarkdown && !promoMentionsOriginal
         ? `<span class="pg-price pg-price-sale">$${item.price.toFixed(2)}<span class="pg-was">$${item.original_price.toFixed(2)}</span></span>`
         : `<span class="pg-price">$${item.price.toFixed(2)}</span>`;
       return `
