@@ -131,10 +131,30 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // --- IMAGE EXTRACTION (independent of card boundaries) ---
+        // --- IMAGE EXTRACTION (walk up to the common product container) ---
         let image = '';
-        if (name) {
-            // 1. Page‑wide search for <img> whose alt matches the product name
+
+        // 1. From the card, climb up to find an ancestor that contains the product image test‑id
+        let imageContainer = null;
+        let ancestor = card;
+        for (let i = 0; i < 10; i++) {
+            if (!ancestor || ancestor === document.body) break;
+            if (ancestor.querySelector('[data-testid="recommended-product-image"]')) {
+                imageContainer = ancestor.querySelector('[data-testid="recommended-product-image"]');
+                break;
+            }
+            ancestor = ancestor.parentElement;
+        }
+
+        if (imageContainer) {
+            const prodImg = imageContainer.querySelector('img');
+            if (prodImg) {
+                image = prodImg.src || prodImg.dataset.src || '';
+            }
+        }
+
+        // 2. Fallback: page‑wide alt‑text match (using product name)
+        if (!image && name) {
             const allImgs = document.querySelectorAll('img');
             for (const img of allImgs) {
                 const alt = (img.alt || '').trim();
@@ -144,7 +164,8 @@ _EXTRACT_JS = r"""() => {
                 }
             }
         }
-        // 2. Fallback: card‑scoped, product URL pattern
+
+        // 3. Fallback: card‑scoped product URL pattern
         if (!image) {
             for (const img of card.querySelectorAll('img')) {
                 const src = img.src || img.dataset.src || '';
@@ -154,7 +175,8 @@ _EXTRACT_JS = r"""() => {
                 }
             }
         }
-        // 3. Fallback: skip campaign labels (alt‑text filter)
+
+        // 4. Fallback: skip campaign labels by alt (card‑scoped)
         if (!image) {
             for (const img of card.querySelectorAll('img')) {
                 const alt = (img.alt || '').trim().toLowerCase();
@@ -166,7 +188,8 @@ _EXTRACT_JS = r"""() => {
                 }
             }
         }
-        // 4. Last resort: first image in the card
+
+        // 5. Absolute last resort: first image in the card
         if (!image) {
             const imgEl = card.querySelector('img');
             image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
