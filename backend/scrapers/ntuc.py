@@ -126,20 +126,52 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // --- Extract correct product image (by URL pattern) ---
+        // --- Extract correct product image (global search, then link to card) ---
         let image = '';
-        const allImgs = card.querySelectorAll('img');
-        // 1. Explicit product‑image URL pattern (most reliable)
-        for (const img of allImgs) {
+
+        // 1. Try within the card first (most efficient)
+        for (const img of card.querySelectorAll('img')) {
             const src = img.src || img.dataset.src || '';
             if (src.includes('/fpol/media/images/product/')) {
                 image = src;
                 break;
             }
         }
-        // 2. Fallback: skip campaign labels by alt text
+
+        // 2. If not found, search entire document for product images
         if (!image) {
-            for (const img of allImgs) {
+            const allPageImgs = document.querySelectorAll('img');
+            const candidates = [];  // { img, score }
+            for (const img of allPageImgs) {
+                const src = img.src || img.dataset.src || '';
+                const alt = (img.alt || '').trim();
+                // Prefer product-URL pattern or alt matching product name
+                if (src.includes('/fpol/media/images/product/') ||
+                    (alt && name.toLowerCase().includes(alt.toLowerCase()))) {
+                    // Check if this img is inside or near the card
+                    let score = 0;
+                    let el = img.parentElement;
+                    while (el && el !== document.body) {
+                        if (el === card) { score = 10; break; }  // inside card
+                        if (card.contains(el)) { score = 5; break; }  // card contains img's ancestor
+                        el = el.parentElement;
+                    }
+                    if (score > 0) {
+                        candidates.push({ img, score });
+                    }
+                }
+            }
+            // Pick the one with highest score (inside card preferred)
+            if (candidates.length > 0) {
+                candidates.sort((a, b) => b.score - a.score);
+                const best = candidates[0].img;
+                image = best.src || best.dataset.src || '';
+            }
+        }
+
+        // 3. Fallback: skip campaign labels by alt text (card-scoped)
+        if (!image) {
+            for (const img of card.querySelectorAll('img')) {
                 const alt = (img.alt || '').trim().toLowerCase();
                 if (alt === 'campaign label' || alt.includes('campaign') || alt.includes('badge')) continue;
                 const src = img.src || img.dataset.src || '';
@@ -149,7 +181,8 @@ _EXTRACT_JS = r"""() => {
                 }
             }
         }
-        // 3. Last resort: first available image
+
+        // 4. Last resort: first available image in card
         if (!image) {
             const imgEl = card.querySelector('img');
             image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
