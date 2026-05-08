@@ -40,7 +40,7 @@ _EXTRACT_JS = """() => {
         let el = node.parentElement;
         let card = null;
         // Walk up to find an element that contains an <img>
-        for (let i = 0; i < 14; i++) {
+        for (let i = 0; i < 12; i++) {
             if (!el || el === document.body) break;
             // Require at least 2 children to avoid tiny image wrappers
             if (el.querySelector('img') && el.children.length >= 2) {
@@ -125,6 +125,9 @@ _EXTRACT_JS = """() => {
                 if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
             }
         }
+ // TEMP DEBUG: log the card and parent start tags
+        console.log('CARD:', card.outerHTML.substring(0, 200).replace(/\n/g,' '));
+        console.log('PARENT:', card.parentElement ? card.parentElement.outerHTML.substring(0, 200).replace(/\n/g,' ') : 'NO PARENT');
         // If still no promo found, check the card's parent element as well
         if (!promoText && card.parentElement) {
             const parentWalker = document.createTreeWalker(card.parentElement, NodeFilter.SHOW_TEXT);
