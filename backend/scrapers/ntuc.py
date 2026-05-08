@@ -19,12 +19,14 @@ _EXTRACT_JS = r"""() => {
 
     // STEP 1: collect ALL promo texts from the page
     const allPromos = [];
+    // Primary source – the dedicated promo label element
     for (const el of document.querySelectorAll('[data-testid="promo-label"]')) {
         const t = el.textContent.trim();
         if (t.length > 3 && t.length < 80 && !promoJunk.test(t) && !allPromos.includes(t)) {
             allPromos.push(t);
         }
     }
+    // Secondary source – regex on any text node
     const promoRe = /\d\+\d\s*free|\d-for-\d|\bbuy\s+\d+\s+get\s+\d+|(?:any\s+)?\d+\s+(?:for|@|at)\s+\$[\d.]+/i;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     let tn;
@@ -35,8 +37,8 @@ _EXTRACT_JS = r"""() => {
         }
     }
 
-    // STEP 2: find product cards — image‑aware card detection
-    const cards = new Map();  // key: card element → { prices: [...], image: string, promo: null|string }
+    // STEP 2: find product cards – promo‑first, then fallback to image
+    const cards = new Map();  // key: card element → { prices: [...], promo: null|string }
 
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
@@ -48,21 +50,13 @@ _EXTRACT_JS = r"""() => {
         if (price < 0.10 || price > 999) continue;
 
         let el = node.parentElement;
-        let card = null, image = '', promo = null;
+        let card = null;
+        let promo = null;
 
-        // Walk up to find a card that contains a product image
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
 
-            // Look for product image inside this ancestor
-            const productImgs = el.querySelectorAll('img[src*="/fpol/media/images/product/"]');
-            if (productImgs.length > 0) {
-                card = el;
-                image = productImgs[0].src || productImgs[0].dataset.src || '';
-                break;
-            }
-
-            // Also check for promo in this ancestor (to still get promos if no product image)
+            // 1. Promo detection – stop once we find an ancestor containing a promo
             if (!promo) {
                 const ancestorText = el.textContent;
                 for (const p of allPromos) {
@@ -71,17 +65,21 @@ _EXTRACT_JS = r"""() => {
                         break;
                     }
                 }
+                if (promo) {
+                    card = el;
+                    break;
+                }
             }
 
-            // Fallback: remember any element with an image (may be campaign label)
+            // 2. Fallback – first element that looks like a product card (has an image)
             if (!card && el.querySelector('img') && el.children.length >= 2) {
-                card = el;  // will be overwritten if product image is found later
+                card = el;
             }
 
             el = el.parentElement;
         }
 
-        if (!card) continue;
+        if (!card) continue;  // skip if no suitable card found
 
         let insideStrike = false;
         let p = node.parentElement;
@@ -90,14 +88,14 @@ _EXTRACT_JS = r"""() => {
             p = p.parentElement;
         }
 
-        if (!cards.has(card)) cards.set(card, { prices: [], image: image, promo: promo });
+        if (!cards.has(card)) cards.set(card, { prices: [], promo: promo });
         cards.get(card).prices.push({ node, price, insideStrike });
     }
 
     // STEP 3: build results
     const results = [];
     for (const [card, data] of cards.entries()) {
-        const { prices, image, promo } = data;
+        const { prices, promo } = data;
         if (prices.length === 0) continue;
 
         let salePrice = null, originalPrice = null;
@@ -132,6 +130,47 @@ _EXTRACT_JS = r"""() => {
             name = best;
         }
         if (!name) continue;
+
+        // --- IMAGE EXTRACTION (independent of card boundaries) ---
+        let image = '';
+        if (name) {
+            // 1. Page‑wide search for <img> whose alt matches the product name
+            const allImgs = document.querySelectorAll('img');
+            for (const img of allImgs) {
+                const alt = (img.alt || '').trim();
+                if (alt && name.toLowerCase().includes(alt.toLowerCase())) {
+                    image = img.src || img.dataset.src || '';
+                    break;
+                }
+            }
+        }
+        // 2. Fallback: card‑scoped, product URL pattern
+        if (!image) {
+            for (const img of card.querySelectorAll('img')) {
+                const src = img.src || img.dataset.src || '';
+                if (src.includes('/fpol/media/images/product/')) {
+                    image = src;
+                    break;
+                }
+            }
+        }
+        // 3. Fallback: skip campaign labels (alt‑text filter)
+        if (!image) {
+            for (const img of card.querySelectorAll('img')) {
+                const alt = (img.alt || '').trim().toLowerCase();
+                if (alt === 'campaign label' || alt.includes('campaign') || alt.includes('badge')) continue;
+                const src = img.src || img.dataset.src || '';
+                if (src) {
+                    image = src;
+                    break;
+                }
+            }
+        }
+        // 4. Last resort: first image in the card
+        if (!image) {
+            const imgEl = card.querySelector('img');
+            image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
+        }
 
         results.push({
             name,
