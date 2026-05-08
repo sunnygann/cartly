@@ -126,35 +126,34 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // --- Extract image using product name (most reliable) ---
+        // --- Extract correct product image (by URL pattern) ---
         let image = '';
-        if (name) {
-            const imgs = card.querySelectorAll('img');
-            for (const img of imgs) {
-                const alt = (img.alt || '').trim();
+        const allImgs = card.querySelectorAll('img');
+        // 1. Explicit product‑image URL pattern (most reliable)
+        for (const img of allImgs) {
+            const src = img.src || img.dataset.src || '';
+            if (src.includes('/fpol/media/images/product/')) {
+                image = src;
+                break;
+            }
+        }
+        // 2. Fallback: skip campaign labels by alt text
+        if (!image) {
+            for (const img of allImgs) {
+                const alt = (img.alt || '').trim().toLowerCase();
                 if (alt === 'campaign label' || alt.includes('campaign') || alt.includes('badge')) continue;
-                if (alt && name.toLowerCase().includes(alt.toLowerCase())) {
-                    image = img.src || img.dataset.src || '';
+                const src = img.src || img.dataset.src || '';
+                if (src) {
+                    image = src;
                     break;
                 }
             }
         }
-        if (!image) {
-            const allImgs = card.querySelectorAll('img');
-            for (const img of allImgs) {
-                const alt = (img.alt || '').toLowerCase();
-                if (alt === 'campaign label' || alt.includes('campaign') || alt.includes('badge')) continue;
-                if (img.width && img.width < 60) continue;
-                if (img.height && img.height < 60) continue;
-                image = img.src || img.dataset.src || '';
-                if (image) break;
-            }
-        }
+        // 3. Last resort: first available image
         if (!image) {
             const imgEl = card.querySelector('img');
             image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
         }
-
         results.push({
             name,
             price: salePrice,
