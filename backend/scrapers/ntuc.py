@@ -152,27 +152,35 @@ _EXTRACT_JS = r"""() => {
         if (!name) continue;
 
         // Prefer the product image, not campaign labels or tiny badges
+        // --- Extract image using the product name (most reliable) ---
         let image = '';
-        // 1. Try the dedicated product image container (FairPrice uses this data-testid)
-        const productImgWrap = card.querySelector('[data-testid="recommended-product-image"]');
-        if (productImgWrap) {
-            const prodImg = productImgWrap.querySelector('img');
-            if (prodImg) image = prodImg.src || prodImg.dataset.src || '';
+        if (name) {
+            // Try to find an <img> whose alt text contains the product name
+            const imgs = card.querySelectorAll('img');
+            for (const img of imgs) {
+                const alt = (img.alt || '').trim();
+                // Skip campaign labels and tiny icons
+                if (alt === 'campaign label' || alt.includes('campaign') || alt.includes('badge')) continue;
+                // Match: alt includes the product name (case‑insensitive)
+                if (alt && name.toLowerCase().includes(alt.toLowerCase())) {
+                    image = img.src || img.dataset.src || '';
+                    break;
+                }
+            }
         }
-        // 2. Fallback: skip images with campaign-related alt text or very small dimensions
+        // Fallback if name‑based matching fails
         if (!image) {
             const allImgs = card.querySelectorAll('img');
             for (const img of allImgs) {
                 const alt = (img.alt || '').toLowerCase();
                 if (alt === 'campaign label' || alt.includes('campaign') || alt.includes('badge')) continue;
-                // Skip tiny images (likely icons / badges)
                 if (img.width && img.width < 60) continue;
                 if (img.height && img.height < 60) continue;
                 image = img.src || img.dataset.src || '';
                 if (image) break;
             }
         }
-        // 3. Last resort: take the first img on the card
+        // Last resort
         if (!image) {
             const imgEl = card.querySelector('img');
             image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
