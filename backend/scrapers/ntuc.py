@@ -25,19 +25,19 @@ _EXTRACT_JS = r"""() => {
     const promoRe = /\d\+\d\s*free|\d-for-\d|\bbuy\s+\d+\s+get\s+\d+|(?:any\s+)?\d+\s+(?:for|@|at)\s+\$[\d.]+/i;
     const promoJunk = /add\s+to\s+cart|\d+\.\d+\s*\(\d+\)/i;
 
-    // ── Step 1: collect all distinct promo strings from the entire page ──
-    const allPromos = [];
-    const promoWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let pn;
-    while (pn = promoWalker.nextNode()) {
-        const t = pn.textContent.trim();
-        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t) && !allPromos.includes(t)) {
-            allPromos.push(t);
+    // ── STEP 1: collect all promo text nodes and their elements ──
+    const promoMap = new Map();  // element → promo string
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let tn;
+    while (tn = walker.nextNode()) {
+        const t = tn.textContent.trim();
+        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) {
+            promoMap.set(tn.parentElement, t);
         }
     }
 
-    // ── Step 2: extract product cards and their prices (as before) ──
-    const cards = new Map();
+    // ── STEP 2: process price nodes ──
+    const cards = new Map();  // key: card element → { prices: [...], promo: null|string }
 
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
@@ -48,16 +48,33 @@ _EXTRACT_JS = r"""() => {
         const price = parseFloat(m[1]);
         if (price < 0.10 || price > 999) continue;
 
+        // Walk up to find a suitable card: an element that either contains
+        // an image (fallback) or contains a promo element.
         let el = node.parentElement;
         let card = null;
+        let promo = null;
+
         for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
+
+            // Check if this element contains any of the promo elements
+            for (const [promoEl, promoStr] of promoMap.entries()) {
+                if (el.contains(promoEl)) {
+                    card = el;
+                    promo = promoStr;
+                    break;
+                }
+            }
+            if (card) break;
+
+            // Fallback: if it contains an image, use it (but no promo found yet)
             if (el.querySelector('img') && el.children.length >= 2) {
                 card = el;
                 break;
             }
             el = el.parentElement;
         }
+
         if (!card) continue;
 
         let insideStrike = false;
@@ -67,13 +84,14 @@ _EXTRACT_JS = r"""() => {
             p = p.parentElement;
         }
 
-        if (!cards.has(card)) cards.set(card, []);
-        cards.get(card).push({ node, price, insideStrike });
+        if (!cards.has(card)) cards.set(card, { prices: [], promo: promo });
+        cards.get(card).prices.push({ node, price, insideStrike });
     }
 
-    // ── Step 3: build results, linking promos by ancestor containment ──
+    // ── STEP 3: build results ──
     const results = [];
-    for (const [card, prices] of cards.entries()) {
+    for (const [card, data] of cards.entries()) {
+        const { prices, promo } = data;
         if (prices.length === 0) continue;
 
         let salePrice = null, originalPrice = null;
@@ -112,28 +130,12 @@ _EXTRACT_JS = r"""() => {
         const imgEl = card.querySelector('img');
         const image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
 
-        // ── Step 4: walk up ancestors (up to 5 levels) and match promos ──
-        let promoText = null;
-        let ancestor = card;
-        for (let i = 0; i <= 5; i++) {
-            if (!ancestor || ancestor === document.body) break;
-            const txt = ancestor.textContent;
-            for (const promo of allPromos) {
-                if (txt.includes(promo)) {
-                    promoText = promo;
-                    break;
-                }
-            }
-            if (promoText) break;
-            ancestor = ancestor.parentElement;
-        }
-
         results.push({
             name,
             price: salePrice,
             image,
             original_price: originalPrice,
-            promo: promoText
+            promo: promo
         });
     }
     return results;
