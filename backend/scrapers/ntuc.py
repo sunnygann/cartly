@@ -151,8 +151,32 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        const imgEl = card.querySelector('img');
-        const image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
+        // Prefer the product image, not campaign labels or tiny badges
+        let image = '';
+        // 1. Try the dedicated product image container (FairPrice uses this data-testid)
+        const productImgWrap = card.querySelector('[data-testid="recommended-product-image"]');
+        if (productImgWrap) {
+            const prodImg = productImgWrap.querySelector('img');
+            if (prodImg) image = prodImg.src || prodImg.dataset.src || '';
+        }
+        // 2. Fallback: skip images with campaign-related alt text or very small dimensions
+        if (!image) {
+            const allImgs = card.querySelectorAll('img');
+            for (const img of allImgs) {
+                const alt = (img.alt || '').toLowerCase();
+                if (alt === 'campaign label' || alt.includes('campaign') || alt.includes('badge')) continue;
+                // Skip tiny images (likely icons / badges)
+                if (img.width && img.width < 60) continue;
+                if (img.height && img.height < 60) continue;
+                image = img.src || img.dataset.src || '';
+                if (image) break;
+            }
+        }
+        // 3. Last resort: take the first img on the card
+        if (!image) {
+            const imgEl = card.querySelector('img');
+            image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
+        }
 
         results.push({
             name,
