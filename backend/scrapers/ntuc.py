@@ -48,33 +48,37 @@ _EXTRACT_JS = r"""() => {
         const price = parseFloat(m[1]);
         if (price < 0.10 || price > 999) continue;
 
-        // Walk up to find a suitable card: an element that either contains
-        // an image (fallback) or contains a promo element.
         let el = node.parentElement;
+        let fallbackCard = null;
         let card = null;
         let promo = null;
 
         for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
 
-            // Check if this element contains any of the promo elements
-            for (const [promoEl, promoStr] of promoMap.entries()) {
-                if (el.contains(promoEl)) {
-                    card = el;
-                    promo = promoStr;
-                    break;
+            // If we haven't found a promo yet, check if this element contains one
+            if (!promo) {
+                for (const [promoEl, promoStr] of promoMap.entries()) {
+                    if (el.contains(promoEl)) {
+                        card = el;
+                        promo = promoStr;
+                        break;
+                    }
                 }
+                if (card) break;
             }
-            if (card) break;
 
-            // Fallback: if it contains an image, use it (but no promo found yet)
-            if (el.querySelector('img') && el.children.length >= 2) {
-                card = el;
-                break;
+            // Otherwise, remember the first element that could serve as a
+            // fallback card (has an image and at least 2 children)
+            if (!fallbackCard && el.querySelector('img') && el.children.length >= 2) {
+                fallbackCard = el;
             }
+
             el = el.parentElement;
         }
 
+        // Use the promo-containing ancestor if found, else the fallback
+        if (!card) card = fallbackCard;
         if (!card) continue;
 
         let insideStrike = false;
