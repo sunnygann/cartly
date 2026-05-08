@@ -25,6 +25,18 @@ _EXTRACT_JS = r"""() => {
     const promoRe = /\d\+\d\s*free|\d-for-\d|\bbuy\s+\d+\s+get\s+\d+|(?:any\s+)?\d+\s+(?:for|@|at)\s+\$[\d.]+/i;
     const promoJunk = /add\s+to\s+cart|\d+\.\d+\s*\(\d+\)/i;
 
+    // ── Step 1: collect all distinct promo strings from the entire page ──
+    const allPromos = [];
+    const promoWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let pn;
+    while (pn = promoWalker.nextNode()) {
+        const t = pn.textContent.trim();
+        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t) && !allPromos.includes(t)) {
+            allPromos.push(t);
+        }
+    }
+
+    // ── Step 2: extract product cards and their prices (as before) ──
     const cards = new Map();
 
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
@@ -59,6 +71,7 @@ _EXTRACT_JS = r"""() => {
         cards.get(card).push({ node, price, insideStrike });
     }
 
+    // ── Step 3: build results, linking promos by ancestor containment ──
     const results = [];
     for (const [card, prices] of cards.entries()) {
         if (prices.length === 0) continue;
@@ -99,52 +112,20 @@ _EXTRACT_JS = r"""() => {
         const imgEl = card.querySelector('img');
         const image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
 
-        // --- PROMO EXTRACTION (aggressive) ---
+        // ── Step 4: walk up ancestors (up to 5 levels) and match promos ──
         let promoText = null;
-
-        // 1. Walk card
-        let walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
-        let n;
-        while (n = walker.nextNode()) {
-            const t = n.textContent.trim();
-            if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
-        }
-
-        // 2. Walk parent and its siblings (aunts/uncles)
-        if (!promoText && card.parentElement) {
-            const parent = card.parentElement;
-            walker = document.createTreeWalker(parent, NodeFilter.SHOW_TEXT);
-            while (n = walker.nextNode()) {
-                const t = n.textContent.trim();
-                if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
-            }
-            if (!promoText && parent.parentElement) {
-                const grandparent = parent.parentElement;
-                for (const sibling of grandparent.children) {
-                    if (sibling === parent) continue;
-                    walker = document.createTreeWalker(sibling, NodeFilter.SHOW_TEXT);
-                    while (n = walker.nextNode()) {
-                        const t = n.textContent.trim();
-                        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
-                    }
-                    if (promoText) break;
-                }
-                if (!promoText) {
-                    walker = document.createTreeWalker(grandparent, NodeFilter.SHOW_TEXT);
-                    while (n = walker.nextNode()) {
-                        const t = n.textContent.trim();
-                        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
-                    }
+        let ancestor = card;
+        for (let i = 0; i <= 5; i++) {
+            if (!ancestor || ancestor === document.body) break;
+            const txt = ancestor.textContent;
+            for (const promo of allPromos) {
+                if (txt.includes(promo)) {
+                    promoText = promo;
+                    break;
                 }
             }
-        }
-
-        // 3. Class-based fallback
-        if (!promoText) {
-            for (const pEl of card.querySelectorAll('[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]')) {
-                const t = pEl.textContent.trim();
-                if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
-            }
+            if (promoText) break;
+            ancestor = ancestor.parentElement;
         }
 
         results.push({
