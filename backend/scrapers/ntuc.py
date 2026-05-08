@@ -35,8 +35,8 @@ _EXTRACT_JS = r"""() => {
         }
     }
 
-    // STEP 2: find product cards
-    const cards = new Map();
+    // STEP 2: find product cards — image‑aware card detection
+    const cards = new Map();  // key: card element → { prices: [...], image: string, promo: null|string }
 
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
@@ -48,12 +48,21 @@ _EXTRACT_JS = r"""() => {
         if (price < 0.10 || price > 999) continue;
 
         let el = node.parentElement;
-        let card = null;
-        let promo = null;
+        let card = null, image = '', promo = null;
 
-        for (let i = 0; i < 14; i++) {
+        // Walk up to find a card that contains a product image
+        for (let i = 0; i < 16; i++) {
             if (!el || el === document.body) break;
 
+            // Look for product image inside this ancestor
+            const productImgs = el.querySelectorAll('img[src*="/fpol/media/images/product/"]');
+            if (productImgs.length > 0) {
+                card = el;
+                image = productImgs[0].src || productImgs[0].dataset.src || '';
+                break;
+            }
+
+            // Also check for promo in this ancestor (to still get promos if no product image)
             if (!promo) {
                 const ancestorText = el.textContent;
                 for (const p of allPromos) {
@@ -62,15 +71,13 @@ _EXTRACT_JS = r"""() => {
                         break;
                     }
                 }
-                if (promo) {
-                    card = el;
-                    break;
-                }
             }
 
+            // Fallback: remember any element with an image (may be campaign label)
             if (!card && el.querySelector('img') && el.children.length >= 2) {
-                card = el;
+                card = el;  // will be overwritten if product image is found later
             }
+
             el = el.parentElement;
         }
 
@@ -83,14 +90,14 @@ _EXTRACT_JS = r"""() => {
             p = p.parentElement;
         }
 
-        if (!cards.has(card)) cards.set(card, { prices: [], promo: promo });
+        if (!cards.has(card)) cards.set(card, { prices: [], image: image, promo: promo });
         cards.get(card).prices.push({ node, price, insideStrike });
     }
 
     // STEP 3: build results
     const results = [];
     for (const [card, data] of cards.entries()) {
-        const { prices, promo } = data;
+        const { prices, image, promo } = data;
         if (prices.length === 0) continue;
 
         let salePrice = null, originalPrice = null;
@@ -126,67 +133,6 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // --- Extract correct product image (global search, then link to card) ---
-        let image = '';
-
-        // 1. Try within the card first (most efficient)
-        for (const img of card.querySelectorAll('img')) {
-            const src = img.src || img.dataset.src || '';
-            if (src.includes('/fpol/media/images/product/')) {
-                image = src;
-                break;
-            }
-        }
-
-        // 2. If not found, search entire document for product images
-        if (!image) {
-            const allPageImgs = document.querySelectorAll('img');
-            const candidates = [];  // { img, score }
-            for (const img of allPageImgs) {
-                const src = img.src || img.dataset.src || '';
-                const alt = (img.alt || '').trim();
-                // Prefer product-URL pattern or alt matching product name
-                if (src.includes('/fpol/media/images/product/') ||
-                    (alt && name.toLowerCase().includes(alt.toLowerCase()))) {
-                    // Check if this img is inside or near the card
-                    let score = 0;
-                    let el = img.parentElement;
-                    while (el && el !== document.body) {
-                        if (el === card) { score = 10; break; }  // inside card
-                        if (card.contains(el)) { score = 5; break; }  // card contains img's ancestor
-                        el = el.parentElement;
-                    }
-                    if (score > 0) {
-                        candidates.push({ img, score });
-                    }
-                }
-            }
-            // Pick the one with highest score (inside card preferred)
-            if (candidates.length > 0) {
-                candidates.sort((a, b) => b.score - a.score);
-                const best = candidates[0].img;
-                image = best.src || best.dataset.src || '';
-            }
-        }
-
-        // 3. Fallback: skip campaign labels by alt text (card-scoped)
-        if (!image) {
-            for (const img of card.querySelectorAll('img')) {
-                const alt = (img.alt || '').trim().toLowerCase();
-                if (alt === 'campaign label' || alt.includes('campaign') || alt.includes('badge')) continue;
-                const src = img.src || img.dataset.src || '';
-                if (src) {
-                    image = src;
-                    break;
-                }
-            }
-        }
-
-        // 4. Last resort: first available image in card
-        if (!image) {
-            const imgEl = card.querySelector('img');
-            image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
-        }
         results.push({
             name,
             price: salePrice,
