@@ -19,15 +19,14 @@ _UA = (
 # JS injected into the page to extract products without knowing class names
 # Replace _EXTRACT_JS inside ntuc.py with this version
 
-_EXTRACT_JS = """() => {
-    const priceRe = /^\\$?(\\d+\\.\\d{2})$/;
+_EXTRACT_JS = r"""() => {
+    const priceRe = /^\$?(\d+\.\d{2})$/;
     const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
-    const promoRe = /\\d[+]\\d\\s*free|\\d-for-\\d|\\bbuy\\s+\\d+\\s+get\\s+\\d+|(?:any\\s+)?\\d+\\s+(?:for|@|at)\\s+\\$[\\d.]+/i;
-    const promoJunk = /add\\s+to\\s+cart|\\d+\\.\\d+\\s*\\(\\d+\\)/i;
+    const promoRe = /\d\+\d\s*free|\d-for-\d|\bbuy\s+\d+\s+get\s+\d+|(?:any\s+)?\d+\s+(?:for|@|at)\s+\$[\d.]+/i;
+    const promoJunk = /add\s+to\s+cart|\d+\.\d+\s*\(\d+\)/i;
 
-    const cards = new Map();  // key: card element → array of {node, price, insideStrike}
+    const cards = new Map();
 
-    // First pass: locate all price nodes and find their enclosing card (common ancestor that contains an <img>)
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = iter.nextNode())) {
@@ -39,10 +38,8 @@ _EXTRACT_JS = """() => {
 
         let el = node.parentElement;
         let card = null;
-        // Walk up to find an element that contains an <img>
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
-            // Require at least 2 children to avoid tiny image wrappers
             if (el.querySelector('img') && el.children.length >= 2) {
                 card = el;
                 break;
@@ -51,7 +48,6 @@ _EXTRACT_JS = """() => {
         }
         if (!card) continue;
 
-        // Determine if this price is inside a strike element (original price)
         let insideStrike = false;
         let p = node.parentElement;
         while (p && p !== card && p !== document.body) {
@@ -67,7 +63,6 @@ _EXTRACT_JS = """() => {
     for (const [card, prices] of cards.entries()) {
         if (prices.length === 0) continue;
 
-        // --- Determine the best (sale) price and original price ---
         let salePrice = null, originalPrice = null;
         const nonStrikePrices = prices.filter(p => !p.insideStrike).map(p => p.price);
         const strikePrices = prices.filter(p => p.insideStrike).map(p => p.price);
@@ -81,12 +76,11 @@ _EXTRACT_JS = """() => {
             if (strikePrices.length > 1) originalPrice = Math.max(...strikePrices);
         }
 
-        // --- Extract product name ---
         let name = '';
         const link = card.querySelector('a[href]');
         if (link && !link.querySelector('img')) {
-            const t = link.textContent.replace(/\\s+/g, ' ').trim();
-            if (t.length > 4 && t.length < 250 && !t.match(/\\$/)) name = t;
+            const t = link.textContent.replace(/\s+/g, ' ').trim();
+            if (t.length > 4 && t.length < 250 && !t.match(/\$/)) name = t;
         }
         if (!name) {
             const allTextEls = card.querySelectorAll('span, p, a, h1, h2, h3, h4, h5');
@@ -94,7 +88,7 @@ _EXTRACT_JS = """() => {
             for (const el of allTextEls) {
                 if (el.children.length > 0) continue;
                 const t = el.textContent.trim();
-                if (t.length > 4 && t.length < 250 && !t.match(/^\\$?[\\d.,\\s]+$/) && !t.includes('$')) {
+                if (t.length > 4 && t.length < 250 && !t.match(/^\$?[\d.,]+$/) && !t.includes('$')) {
                     if (t.length > best.length) best = t;
                 }
             }
@@ -102,44 +96,57 @@ _EXTRACT_JS = """() => {
         }
         if (!name) continue;
 
-        // --- Extract image ---
         const imgEl = card.querySelector('img');
         const image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
 
-        // --- Extract promo text ---
-        // ★ Improved: scan ALL text nodes in the card for promo pattern,
-        // then fall back to class‑based elements.
+        // --- PROMO EXTRACTION (aggressive) ---
         let promoText = null;
-        const textWalker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
-        let tnode;
-        while (tnode = textWalker.nextNode()) {
-            const t = tnode.textContent.trim();
-            if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) {
-                promoText = t;
-                break;
+
+        // 1. Walk card
+        let walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+        let n;
+        while (n = walker.nextNode()) {
+            const t = n.textContent.trim();
+            if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
+        }
+
+        // 2. Walk parent and its siblings (aunts/uncles)
+        if (!promoText && card.parentElement) {
+            const parent = card.parentElement;
+            walker = document.createTreeWalker(parent, NodeFilter.SHOW_TEXT);
+            while (n = walker.nextNode()) {
+                const t = n.textContent.trim();
+                if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
+            }
+            if (!promoText && parent.parentElement) {
+                const grandparent = parent.parentElement;
+                for (const sibling of grandparent.children) {
+                    if (sibling === parent) continue;
+                    walker = document.createTreeWalker(sibling, NodeFilter.SHOW_TEXT);
+                    while (n = walker.nextNode()) {
+                        const t = n.textContent.trim();
+                        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
+                    }
+                    if (promoText) break;
+                }
+                if (!promoText) {
+                    walker = document.createTreeWalker(grandparent, NodeFilter.SHOW_TEXT);
+                    while (n = walker.nextNode()) {
+                        const t = n.textContent.trim();
+                        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
+                    }
+                }
             }
         }
+
+        // 3. Class-based fallback
         if (!promoText) {
             for (const pEl of card.querySelectorAll('[class*="promo"],[class*="offer"],[class*="deal"],[class*="badge"],[class*="tag"],[class*="sticker"],[class*="label"]')) {
                 const t = pEl.textContent.trim();
                 if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promoText = t; break; }
             }
         }
- // TEMP DEBUG: log the card and parent start tags
-        console.log('CARD:', card.outerHTML.substring(0, 200).replace(/\n/g,' '));
-        console.log('PARENT:', card.parentElement ? card.parentElement.outerHTML.substring(0, 200).replace(/\n/g,' ') : 'NO PARENT');
-        // If still no promo found, check the card's parent element as well
-        if (!promoText && card.parentElement) {
-            const parentWalker = document.createTreeWalker(card.parentElement, NodeFilter.SHOW_TEXT);
-            let pnode;
-            while (pnode = parentWalker.nextNode()) {
-                const t = pnode.textContent.trim();
-                if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) {
-                    promoText = t;
-                    break;
-                }
-            }
-        }
+
         results.push({
             name,
             price: salePrice,
@@ -150,7 +157,6 @@ _EXTRACT_JS = """() => {
     }
     return results;
 }"""
-
 
 async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
     async with async_playwright() as p:
