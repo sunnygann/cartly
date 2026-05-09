@@ -191,8 +191,8 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
                         except Exception as exc:
                             print(f"[{store_key}] upsert error: {exc}")
                     await db.commit()
-                    fresh = await _fresh_prices(db, q)
-            yield _sse({"type": "results", "source": "live", "results": fresh})
+                    updated = await _fresh_prices(db, q)
+            yield _sse({"type": "results", "source": "live", "results": updated})
 
         # 3. Record this query so subsequent searches hit cache
         async with _session() as db:
