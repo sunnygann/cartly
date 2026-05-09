@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Never** run `git commit`, `git push`, or `surge` without explicit user permission.
 - Only modify code files. Do not run deployment or publish commands autonomously.
+- At the end of every prompt, if any changes were made to any codebase, make clear which files were edited. 
 
 ## Local development
 
