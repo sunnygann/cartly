@@ -117,8 +117,13 @@ async def _fresh_prices(db: AsyncSession, query: str) -> list[dict]:
         .where(*[func.lower(Product.name).contains(w) for w in query.lower().split()])
         .order_by(Price.price)
     )
+    import math
     rows = (await db.execute(stmt)).all()
-    return [_fmt_row(price, product, store) for price, product, store in rows]
+    return [
+        _fmt_row(price, product, store)
+        for price, product, store in rows
+        if price.price is not None and math.isfinite(float(price.price))
+    ]
 
 
 async def _query_was_scraped(db: AsyncSession, query: str) -> bool:
@@ -131,6 +136,18 @@ async def _query_was_scraped(db: AsyncSession, query: str) -> bool:
     return r.scalar_one_or_none() is not None
 
 
+def _safe_float(v) -> float | None:
+    """Return None for NaN/Inf so json.dumps never raises ValueError."""
+    import math
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return f if math.isfinite(f) else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _fmt_row(price: Price, product: Product, store: Store) -> dict:
     return {
         "product_id":     product.id,
@@ -141,8 +158,8 @@ def _fmt_row(price: Price, product: Product, store: Store) -> dict:
         "store_key":      store.key,
         "store_name":     store.name,
         "store_color":    store.color,
-        "price":          price.price,
-        "original_price": price.original_price,
+        "price":          _safe_float(price.price),
+        "original_price": _safe_float(price.original_price),
         "promo":          price.promo,
         "scraped_at":     price.scraped_at.isoformat(),
     }
