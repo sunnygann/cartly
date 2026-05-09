@@ -131,30 +131,24 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // --- IMAGE EXTRACTION (walk up to the common product container) ---
+        // --- IMAGE EXTRACTION (global search by product name, then fallbacks) ---
         let image = '';
 
-        // 1. From the card, climb up to find an ancestor that contains the product image test‑id
-        let imageContainer = null;
-        let ancestor = card;
-        for (let i = 0; i < 10; i++) {
-            if (!ancestor || ancestor === document.body) break;
-            if (ancestor.querySelector('[data-testid="recommended-product-image"]')) {
-                imageContainer = ancestor.querySelector('[data-testid="recommended-product-image"]');
-                break;
-            }
-            ancestor = ancestor.parentElement;
-        }
-
-        if (imageContainer) {
-            const prodImg = imageContainer.querySelector('img');
-            if (prodImg) {
-                image = prodImg.src || prodImg.dataset.src || '';
+        // 1. Global search: find the recommended-product-image container whose img alt matches product name
+        const imageContainers = document.querySelectorAll('[data-testid="recommended-product-image"]');
+        for (const container of imageContainers) {
+            const img = container.querySelector('img');
+            if (img) {
+                const alt = (img.alt || '').trim();
+                if (alt && name.toLowerCase().includes(alt.toLowerCase())) {
+                    image = img.src || img.dataset.src || '';
+                    break;
+                }
             }
         }
 
-        // 2. Fallback: page‑wide alt‑text match (using product name)
-        if (!image && name) {
+        // 2. Fallback: page‑wide alt‑text match (any img)
+        if (!image) {
             const allImgs = document.querySelectorAll('img');
             for (const img of allImgs) {
                 const alt = (img.alt || '').trim();
