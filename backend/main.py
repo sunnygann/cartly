@@ -132,6 +132,7 @@ async def _query_was_scraped(db: AsyncSession, query: str) -> bool:
         select(ScrapedQuery)
         .where(ScrapedQuery.query == query.lower().strip())
         .where(ScrapedQuery.scraped_at >= cutoff)
+        .limit(1)
     )
     return r.scalar_one_or_none() is not None
 
