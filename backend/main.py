@@ -75,6 +75,14 @@ async def _upsert_price(db: AsyncSession, store: Store, raw: dict):
         )
         db.add(product)
         await db.flush()  # get id
+    else:
+        # Refresh image (and other fields) from latest scrape
+        if raw.get("image"):
+            product.image = raw["image"]
+        if raw.get("brand"):
+            product.brand = raw["brand"]
+        if raw.get("unit"):
+            product.unit = raw["unit"]
 
     db.add(Price(
         product_id=product.id,
