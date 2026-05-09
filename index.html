@@ -544,10 +544,10 @@
   </label>
 
   <div class="popular-tags">
-    <span class="tag" onclick="quickSearch('Royal Umbrella Thai Hom Mali Rice')">Royal Umbrella Thai Hom Mali Rice</span>
-    <span class="tag" onclick="quickSearch('Meiji Low Fat High Protein Milk')">Meiji Low Fat High Protein Milk</span>
+    <span class="tag" onclick="quickSearch('Royal Umbrella Rice')">Royal Umbrella Rice</span>
+    <span class="tag" onclick="quickSearch('Meiji Protein Milk')">Meiji Protein Milk</span>
     <span class="tag" onclick="quickSearch('Seng Choon Farm Fresh Eggs')">Seng Choon Farm Fresh Eggs</span>
-    <span class="tag" onclick="quickSearch('Myojo Chicken Curry Instant Noodles')">Myojo Chicken Curry Instant Noodles</span>
+    <span class="tag" onclick="quickSearch('Facial Tissue')">Facial Tissue</span>
     <div style="flex-basis:100%;height:0"></div>
     <span class="tag" onclick="quickSearch('Gardenia White Bread')">Gardenia White Bread</span>
     <span class="tag" onclick="quickSearch('100PLUS Isotonic Drink')">100PLUS Isotonic Drink</span>
@@ -914,7 +914,7 @@ function extractMeta(name) {
   return { clean: clean || name, sub: qtys.join(' · ') };
 }
 
-function groupByProduct(results) {
+function groupByProduct(results, storeVariantCount = {}) {
   const THRESHOLD = 0.32;
   const STOP = new Set(['the','and','for','with','per','from','each','singapore','new','value']);
 
@@ -947,7 +947,8 @@ function groupByProduct(results) {
   function qtyMatch(a, b) {
     if (!a || !b) return true; // unknown qty → don't gate
     if (a.dim !== b.dim) return false;
-    return Math.abs(a.amt - b.amt) / Math.max(a.amt, b.amt) < 0.12;
+    const diff = Math.abs(a.amt - b.amt);
+    return diff <= 20 || diff / Math.max(a.amt, b.amt) < 0.05;
   }
 
   // --- Gate 3: IDF-weighted token similarity on qty-stripped name ---
@@ -1000,7 +1001,17 @@ function groupByProduct(results) {
     }
 
     // Gate 3: token similarity on qty-stripped names (Jaccard-weighted IDF)
-    return tokenSim(a.product_name, b.product_name) >= THRESHOLD;
+    if (tokenSim(a.product_name, b.product_name) < THRESHOLD) return false;
+
+    // Gate 4: discriminating word veto — if a word with high IDF appears in
+    // one name but not the other, they are different product lines/variants
+    const DISC = 0.8;
+    const ka = new Set(kws(a.product_name));
+    const kb = new Set(kws(b.product_name));
+    for (const w of ka) { if (!kb.has(w) && idf(w) > DISC) return false; }
+    for (const w of kb) { if (!ka.has(w) && idf(w) > DISC) return false; }
+
+    return true;
   }
 
   const groups = [], assigned = new Set();
@@ -1015,10 +1026,14 @@ function groupByProduct(results) {
       if (items.some(x => x.store_key === r2.store_key)) continue;
       if (isSameProduct(r, r2)) { items.push(r2); assigned.add(j); }
     }
+    // Pick display name from the store with the most variants in this search
+    const nameSource = [...items].sort((a, b) =>
+      (storeVariantCount[b.store_key] || 0) - (storeVariantCount[a.store_key] || 0)
+    )[0];
     groups.push({
-      displayName: r.product_name,
-      brand: r.brand || null,
-      unit: r.unit || null,
+      displayName: nameSource.product_name,
+      brand: nameSource.brand || null,
+      unit: nameSource.unit || null,
       image: items.find(x => x.image)?.image || '',
       items: items.sort((a, b) => {
         const aSO = a.promo === 'SOLD OUT', bSO = b.promo === 'SOLD OUT';
@@ -1102,11 +1117,24 @@ function renderResults(query, results) {
   section.style.display = 'block';
 
   const filtered = results.filter(r => selectedStores.has(r.store_key));
-  const groups   = groupByProduct(filtered);
+  // Dedup by (store_key, normalised name, price) — guards against the DB
+  // having two product rows for the same item from different scrape runs
+  const dedupSeen = new Set();
+  const deduped = filtered.filter(r => {
+    const key = `${r.store_key}|${r.product_name.toLowerCase().replace(/\s+/g,' ').trim()}|${r.price}`;
+    if (dedupSeen.has(key)) return false;
+    dedupSeen.add(key);
+    return true;
+  });
+  // Count how many products each store has in this search — used to pick
+  // the naming convention for matched groups (dominant store = most variants)
+  const storeVariantCount = {};
+  deduped.forEach(r => { storeVariantCount[r.store_key] = (storeVariantCount[r.store_key] || 0) + 1; });
+  const groups   = groupByProduct(deduped, storeVariantCount);
   const matched  = groups.filter(g => g.items.length > 1).length;
 
   document.getElementById('result-label').textContent =
-    `${filtered.length} prices · ${groups.length} products · ${matched} matched across stores`;
+    `${deduped.length} prices · ${groups.length} products · ${matched} matched across stores`;
 
   // Build maxPriceCache for savings calculation
   groups.forEach(g => {

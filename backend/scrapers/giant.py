@@ -32,7 +32,7 @@ async def _resolve_via_doh(hostname: str) -> str | None:
     return None
 
 
-async def search_giant(query: str, limit: int = 20) -> list[dict]:
+async def search_giant(query: str, limit: int = 20, browser=None) -> list[dict]:
     ip = await _resolve_via_doh(_ALGOLIA_HOST)
 
     if not ip:

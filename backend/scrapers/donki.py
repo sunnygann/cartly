@@ -3,7 +3,6 @@ Don Don Donki scraper.
 Donki SG has no direct online store. We scrape their Lazada SG brand page
 which lists their products with prices.
 """
-import asyncio
 from datetime import datetime
 from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
@@ -25,26 +24,35 @@ def _is_relevant(name: str, query: str) -> bool:
     return any(w in name_l for w in q_words)
 
 
-async def search_donki(query: str, limit: int = 20) -> list[dict]:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        ctx = await browser.new_context(
-            user_agent=_UA,
-            viewport={"width": 1280, "height": 900},
-            extra_http_headers={"Accept-Language": "en-SG,en;q=0.9"},
+async def search_donki(query: str, limit: int = 20, browser=None) -> list[dict]:
+    own_browser = browser is None
+    _pw = None
+    if own_browser:
+        _pw = await async_playwright().start()
+        browser = await _pw.chromium.launch(
+            headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
-        page = await ctx.new_page()
 
-        raw = []
+    ctx = await browser.new_context(
+        user_agent=_UA,
+        viewport={"width": 1280, "height": 900},
+        extra_http_headers={"Accept-Language": "en-SG,en;q=0.9"},
+    )
+    page = await ctx.new_page()
+    raw = []
+
+    try:
         for url_tmpl in _URLS:
             url = url_tmpl.format(quote_plus(query))
             try:
-                await page.goto(url, wait_until="load", timeout=30_000)
+                await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
                 try:
-                    await page.wait_for_selector("[class*='product' i], [class*='item' i]", timeout=8_000)
+                    await page.wait_for_selector(
+                        "[class*='product' i], [class*='item' i]",
+                        timeout=8_000,
+                    )
                 except Exception:
                     pass
-                await asyncio.sleep(3)
             except Exception as exc:
                 print(f"[donki] {url} failed: {exc}")
                 continue
@@ -61,7 +69,13 @@ async def search_donki(query: str, limit: int = 20) -> list[dict]:
                 break
             raw = []
 
-        await browser.close()
+    except Exception as exc:
+        print(f"[donki] error: {exc}")
+    finally:
+        await ctx.close()
+        if own_browser and _pw:
+            await browser.close()
+            await _pw.stop()
 
     products = []
     for item in raw[:limit]:

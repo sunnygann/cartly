@@ -12,6 +12,7 @@ from sqlalchemy import select, func
 from database import get_db, init_db
 from models import Store, Product, Price, ScrapedQuery
 from scrapers import SCRAPERS
+from browser import get_browser, stop_browser
 
 app = FastAPI(title="Cartly API", version="0.1.0")
 
@@ -37,12 +38,18 @@ PRICE_TTL_HOURS = 6
 @app.on_event("startup")
 async def startup():
     await init_db()
+    await get_browser()  # pre-warm shared Chromium
     async with _session() as db:
         for s in STORES_SEED:
             exists = await db.execute(select(Store).where(Store.key == s["key"]))
             if not exists.scalar_one_or_none():
                 db.add(Store(**s))
         await db.commit()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await stop_browser()
 
 
 def _session():
@@ -196,7 +203,8 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
 
         async def run_one(store_key, fn):
             try:
-                return store_key, await fn(q)
+                browser = await get_browser()
+                return store_key, await fn(q, browser=browser)
             except Exception as exc:
                 print(f"[{store_key}] error: {exc}")
                 return store_key, []

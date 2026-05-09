@@ -141,19 +141,19 @@ _EXTRACT_JS = r"""() => {
 }"""
 
 
-async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        ctx = await browser.new_context(user_agent=_UA)
-        page = await ctx.new_page()
+async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
+    own_browser = browser is None
+    _pw = None
+    if own_browser:
+        _pw = await async_playwright().start()
+        browser = await _pw.chromium.launch(headless=True)
 
-        try:
-            await page.goto(_SEARCH_URL.format(query), wait_until="load", timeout=30_000)
-        except Exception as exc:
-            print(f"[ntuc] page load error: {exc}")
-            await browser.close()
-            return []
+    ctx = await browser.new_context(user_agent=_UA)
+    page = await ctx.new_page()
+    raw = []
 
+    try:
+        await page.goto(_SEARCH_URL.format(query), wait_until="domcontentloaded", timeout=30_000)
         try:
             await page.wait_for_function(
                 "() => document.body.innerText.includes('$')",
@@ -161,13 +161,20 @@ async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
             )
         except Exception:
             pass
-        await asyncio.sleep(2)
-
+        try:
+            await page.wait_for_load_state("networkidle", timeout=3_000)
+        except Exception:
+            pass
         title = await page.title()
         print(f"[ntuc] loaded: {title}")
-
         raw = await page.evaluate(_EXTRACT_JS)
-        await browser.close()
+    except Exception as exc:
+        print(f"[ntuc] error: {exc}")
+    finally:
+        await ctx.close()
+        if own_browser and _pw:
+            await browser.close()
+            await _pw.stop()
 
     print(f"[ntuc] DOM extracted {len(raw)} price nodes")
 
