@@ -179,8 +179,8 @@
     .popular-tags { margin-top: 1rem; display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; }
     .tag {
       background: rgba(0,0,0,.05); border: 1px solid var(--border);
-      color: var(--muted); padding: .5rem .9rem; border-radius: 999px;
-      font-size: .8rem; cursor: pointer; transition: all .2s;
+      color: var(--muted); padding: .3rem .65rem; border-radius: 999px;
+      font-size: .72rem; cursor: pointer; transition: all .2s;
       min-height: 44px; display: inline-flex; align-items: center; /* fix #6: 44pt target */
     }
     .tag:hover { background: rgba(18,183,106,.12); border-color: var(--accent); color: var(--text); }
@@ -540,16 +540,16 @@
 
   <label class="fresh-toggle">
     <input type="checkbox" id="fresh-check">
-    <span>Rescrape (dev tool)</span>
+    <span>rescrape (dev)</span>
   </label>
 
   <div class="popular-tags">
-    <span class="tag" onclick="quickSearch('Jasmine Rice 5kg')">Jasmine Rice 5kg</span>
-    <span class="tag" onclick="quickSearch('Milo 1kg')">Milo 1kg</span>
-    <span class="tag" onclick="quickSearch('Eggs (10 pack)')">Eggs (10 pack)</span>
-    <span class="tag" onclick="quickSearch('Greek Yogurt')">Greek Yogurt</span>
-    <span class="tag" onclick="quickSearch('Chicken Breast 500g')">Chicken Breast 500g</span>
-    <span class="tag" onclick="quickSearch('Toilet Rolls 12pk')">Toilet Rolls 12pk</span>
+    <span class="tag" onclick="quickSearch('Royal Umbrella Thai Hom Mali Rice')">Royal Umbrella Rice</span>
+    <span class="tag" onclick="quickSearch('Meiji Low Fat High Protein Milk')">Meiji Milk</span>
+    <span class="tag" onclick="quickSearch('Seng Choon Farm Fresh Eggs')">Seng Choon Eggs</span>
+    <span class="tag" onclick="quickSearch('Myojo Chicken Curry Instant Noodles')">Myojo Noodles</span>
+    <span class="tag" onclick="quickSearch('Gardenia White Bread')">Gardenia Bread</span>
+    <span class="tag" onclick="quickSearch('100PLUS Isotonic Drink')">100PLUS</span>
   </div>
 </section>
 
@@ -661,7 +661,7 @@
 <!-- ── FOOTER ── -->
 <footer>
   <p style="margin-bottom:.4rem">
-    <a href="#">About</a> · <a href="#">Blog</a> · <a href="#">API</a> · <a href="#">Privacy</a> · <a href="#">Contact</a>
+    <a href="#">About</a> · <a href="#">Blog</a> · <a href="#">API</a> · <a href="#">Privacy</a> · <a href="mailto:sunnygann7@gmail.com">Contact</a>
   </p>
   <p>© 2026 Cartly · Prices updated every 6 hours · Not affiliated with any supermarket chain</p>
 </footer>
@@ -1026,13 +1026,40 @@ function groupByProduct(results) {
   return groups;
 }
 
-function normalizePromo(text) {
+function normalizePromo(text, price, originalPrice) {
   if (!text) return null;
-  // Reject garbage: real promo labels are short and don't contain cart/rating noise
-  if (text.length > 60 || /add\s+to\s+cart/i.test(text) || /\d+\.\d+\s*\(\d+\)/.test(text)) return null;
-  const m = text.match(/buy\s+(\d+)\s+get\s+(\d+)/i);
-  if (m) return `${m[1]}+${m[2]} Free`;
-  return text.replace(/\s+/g, ' ').trim();
+  if (text === 'SOLD OUT') return null;
+  if (text.length > 80 || /add\s+to\s+cart/i.test(text) || /\d+\.\d+\s*\(\d+\)/.test(text)) return null;
+
+  const t = text.trim();
+
+  // "Any N @ $X" / "Any N At $X" / "Buy N @ $X" / "N for $X" → "N for $X.XX"
+  let m = t.match(/^(?:any\s+|buy\s+)?(\d+)\s*(?:for|@|at)\s*\$?([\d.]+)/i);
+  if (m) return `${m[1]} for $${parseFloat(m[2]).toFixed(2)}`;
+
+  // "Buy N, get M% off" → "Buy N Get M% off"
+  m = t.match(/buy\s+(\d+)[,\s]+get\s+(\d+)%\s*off/i);
+  if (m) return `Buy ${m[1]} Get ${m[2]}% off`;
+
+  // "Buy N get M free" / "N+M free" → "Buy N Get M Free"
+  m = t.match(/buy\s+(\d+)[,\s]+get\s+(\d+)\s*free/i) || t.match(/(\d+)\+(\d+)\s*free/i);
+  if (m) return `Buy ${m[1]} Get ${m[2]} Free`;
+
+  // "N% off" → "N% off"
+  m = t.match(/^(\d+)%\s*off$/i);
+  if (m) return `${m[1]}% off`;
+
+  // "Save $X" → "N% off" using original price, fallback to "Save $X.XX"
+  m = t.match(/^save\s*\$?([\d.]+)/i);
+  if (m) {
+    if (originalPrice && price && originalPrice > price) {
+      const pct = Math.round((1 - price / originalPrice) * 100);
+      if (pct > 0) return `${pct}% off`;
+    }
+    return `Save $${parseFloat(m[1]).toFixed(2)}`;
+  }
+
+  return t.replace(/\s+/g, ' ');
 }
 
 function cleanProductName(raw) {
@@ -1102,7 +1129,7 @@ const { clean, sub: parsedSub } = extractMeta(cleanRaw);
       const pct        = (!isSoldOut && i > 0) ? (((item.price - cheapest) / cheapest) * 100).toFixed(0) : 0;
       const hasMarkdown = !isSoldOut && item.original_price && item.original_price > item.price;
       const discPct   = hasMarkdown ? Math.round((1 - item.price / item.original_price) * 100) : 0;
-      const promoLabel = (!isSoldOut && item.promo) ? normalizePromo(item.promo) : null;
+      const promoLabel = (!isSoldOut && item.promo) ? normalizePromo(item.promo, item.price, item.original_price) : null;
       const sn        = cleanProductName(item.product_name).replace(/'/g,"\\'");
       const sk        = item.store_key;
       const snm       = item.store_name.replace(/'/g,"\\'");
