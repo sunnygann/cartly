@@ -92,8 +92,8 @@ async def _upsert_price(db: AsyncSession, store: Store, raw: dict):
     ))
 
 
-async def _fresh_prices(db: AsyncSession, query: str) -> list[dict]:
-    cutoff = datetime.utcnow() - timedelta(hours=PRICE_TTL_HOURS)
+async def _fresh_prices(db: AsyncSession, query: str, since: datetime | None = None) -> list[dict]:
+    cutoff = since if since is not None else datetime.utcnow() - timedelta(hours=PRICE_TTL_HOURS)
     subq = (
         select(
             Price.product_id,
@@ -192,6 +192,8 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
             return
 
         # 2. Run each scraper independently; emit after each one saves
+        scrape_start = datetime.utcnow()
+
         async def run_one(store_key, fn):
             try:
                 return store_key, await fn(q)
@@ -214,7 +216,7 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
                         except Exception as exc:
                             print(f"[{store_key}] upsert error: {exc}")
                     await db.commit()
-                    updated = await _fresh_prices(db, q)
+                    updated = await _fresh_prices(db, q, since=scrape_start if fresh else None)
             yield _sse({"type": "results", "source": "live", "results": updated})
 
         # 3. Record this query so subsequent searches hit cache
