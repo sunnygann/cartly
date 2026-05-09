@@ -19,14 +19,12 @@ _EXTRACT_JS = r"""() => {
 
     // STEP 1: collect ALL promo texts from the page
     const allPromos = [];
-    // Primary source – the dedicated promo label element
     for (const el of document.querySelectorAll('[data-testid="promo-label"]')) {
         const t = el.textContent.trim();
         if (t.length > 3 && t.length < 80 && !promoJunk.test(t) && !allPromos.includes(t)) {
             allPromos.push(t);
         }
     }
-    // Secondary source – regex on any text node
     const promoRe = /\d\+\d\s*free|\d-for-\d|\bbuy\s+\d+\s+get\s+\d+|(?:any\s+)?\d+\s+(?:for|@|at)\s+\$[\d.]+/i;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     let tn;
@@ -37,8 +35,8 @@ _EXTRACT_JS = r"""() => {
         }
     }
 
-    // STEP 2: find product cards – promo‑first, then fallback to image
-    const cards = new Map();  // key: card element → { prices: [...], promo: null|string }
+    // STEP 2: find product cards (promo‑first, then image fallback)
+    const cards = new Map();
 
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
@@ -56,7 +54,6 @@ _EXTRACT_JS = r"""() => {
         for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
 
-            // 1. Promo detection – stop once we find an ancestor containing a promo
             if (!promo) {
                 const ancestorText = el.textContent;
                 for (const p of allPromos) {
@@ -71,7 +68,6 @@ _EXTRACT_JS = r"""() => {
                 }
             }
 
-            // 2. Fallback – first element that looks like a product card (has an image)
             if (!card && el.querySelector('img') && el.children.length >= 2) {
                 card = el;
             }
@@ -79,7 +75,7 @@ _EXTRACT_JS = r"""() => {
             el = el.parentElement;
         }
 
-        if (!card) continue;  // skip if no suitable card found
+        if (!card) continue;
 
         let insideStrike = false;
         let p = node.parentElement;
@@ -131,35 +127,16 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // --- IMAGE EXTRACTION (global search by product name, then fallbacks) ---
+        // --- IMAGE EXTRACTION (direct global query, single result) ---
         let image = '';
-
-        // 1. Global search: find the recommended-product-image container whose img alt matches product name
-        const imageContainers = document.querySelectorAll('[data-testid="recommended-product-image"]');
-        for (const container of imageContainers) {
-            const img = container.querySelector('img');
-            if (img) {
-                const alt = (img.alt || '').trim();
-                if (alt && name.toLowerCase().includes(alt.toLowerCase())) {
-                    image = img.src || img.dataset.src || '';
-                    break;
-                }
+        const prodContainer = document.querySelector('[data-testid="recommended-product-image"]');
+        if (prodContainer) {
+            const prodImg = prodContainer.querySelector('img');
+            if (prodImg) {
+                image = prodImg.src || prodImg.dataset.src || '';
             }
         }
-
-        // 2. Fallback: page‑wide alt‑text match (any img)
-        if (!image) {
-            const allImgs = document.querySelectorAll('img');
-            for (const img of allImgs) {
-                const alt = (img.alt || '').trim();
-                if (alt && name.toLowerCase().includes(alt.toLowerCase())) {
-                    image = img.src || img.dataset.src || '';
-                    break;
-                }
-            }
-        }
-
-        // 3. Fallback: card‑scoped product URL pattern
+        // Fallback (only if above somehow fails): card‑scoped product URL pattern
         if (!image) {
             for (const img of card.querySelectorAll('img')) {
                 const src = img.src || img.dataset.src || '';
@@ -168,25 +145,6 @@ _EXTRACT_JS = r"""() => {
                     break;
                 }
             }
-        }
-
-        // 4. Fallback: skip campaign labels by alt (card‑scoped)
-        if (!image) {
-            for (const img of card.querySelectorAll('img')) {
-                const alt = (img.alt || '').trim().toLowerCase();
-                if (alt === 'campaign label' || alt.includes('campaign') || alt.includes('badge')) continue;
-                const src = img.src || img.dataset.src || '';
-                if (src) {
-                    image = src;
-                    break;
-                }
-            }
-        }
-
-        // 5. Absolute last resort: first image in the card
-        if (!image) {
-            const imgEl = card.querySelector('img');
-            image = imgEl ? (imgEl.src || imgEl.dataset.src || '') : '';
         }
 
         results.push({
