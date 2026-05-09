@@ -1,15 +1,16 @@
 import asyncio
+import json
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func, text
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, func
 
 from database import get_db, init_db
-from models import Store, Product, Price
+from models import Store, Product, Price, ScrapedQuery
 from scrapers import SCRAPERS
 
 app = FastAPI(title="Cartly API", version="0.1.0")
@@ -30,7 +31,7 @@ STORES_SEED = [
     {"key": "donki", "name": "Don Don Donki",   "color": "#e60012"},
 ]
 
-PRICE_TTL_HOURS = 6  # scrape again after this many hours
+PRICE_TTL_HOURS = 6
 
 
 @app.on_event("startup")
@@ -57,8 +58,6 @@ async def _get_store(db: AsyncSession, key: str) -> Optional[Store]:
 
 
 async def _upsert_price(db: AsyncSession, store: Store, raw: dict):
-    """Insert or update the latest price row for a store+product combo."""
-    # Find or create product by exact name (normalised lower)
     name_lower = raw["name"].strip()
     r = await db.execute(
         select(Product).where(func.lower(Product.name) == name_lower.lower())
@@ -74,9 +73,8 @@ async def _upsert_price(db: AsyncSession, store: Store, raw: dict):
             category=raw.get("category"),
         )
         db.add(product)
-        await db.flush()  # get id
+        await db.flush()
     else:
-        # Refresh image (and other fields) from latest scrape
         if raw.get("image"):
             product.image = raw["image"]
         if raw.get("brand"):
@@ -95,9 +93,7 @@ async def _upsert_price(db: AsyncSession, store: Store, raw: dict):
 
 
 async def _fresh_prices(db: AsyncSession, query: str) -> list[dict]:
-    """Return latest price rows for products matching query, if data is fresh."""
     cutoff = datetime.utcnow() - timedelta(hours=PRICE_TTL_HOURS)
-    # latest price per product+store
     subq = (
         select(
             Price.product_id,
@@ -125,71 +121,95 @@ async def _fresh_prices(db: AsyncSession, query: str) -> list[dict]:
     return [_fmt_row(price, product, store) for price, product, store in rows]
 
 
+async def _query_was_scraped(db: AsyncSession, query: str) -> bool:
+    cutoff = datetime.utcnow() - timedelta(hours=PRICE_TTL_HOURS)
+    r = await db.execute(
+        select(ScrapedQuery)
+        .where(ScrapedQuery.query == query.lower().strip())
+        .where(ScrapedQuery.scraped_at >= cutoff)
+    )
+    return r.scalar_one_or_none() is not None
+
+
 def _fmt_row(price: Price, product: Product, store: Store) -> dict:
     return {
-        "product_id":    product.id,
-        "product_name":  product.name,
-        "brand":         product.brand,
-        "unit":          product.unit,
-        "image":         product.image,
-        "store_key":     store.key,
-        "store_name":    store.name,
-        "store_color":   store.color,
-        "price":         price.price,
+        "product_id":     product.id,
+        "product_name":   product.name,
+        "brand":          product.brand,
+        "unit":           product.unit,
+        "image":          product.image,
+        "store_key":      store.key,
+        "store_name":     store.name,
+        "store_color":    store.color,
+        "price":          price.price,
         "original_price": price.original_price,
-        "promo":         price.promo,
-        "scraped_at":    price.scraped_at.isoformat(),
+        "promo":          price.promo,
+        "scraped_at":     price.scraped_at.isoformat(),
     }
 
 
-async def _run_scrapers(query: str):
-    """Fire all scrapers for a query and persist results."""
-    async with _session() as db:
-        tasks = [scraper(query) for scraper in SCRAPERS.values()]
-        all_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for store_key, result in zip(SCRAPERS.keys(), all_results):
-            if isinstance(result, Exception):
-                print(f"[{store_key}] scraper error: {result}")
-                continue
-            store = await _get_store(db, store_key)
-            if not store:
-                continue
-            for raw in result:
-                try:
-                    await _upsert_price(db, store, raw)
-                except Exception as exc:
-                    print(f"[{store_key}] upsert error: {exc}")
-
-        await db.commit()
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
 
 
 # ── routes ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/search")
-async def search(
-    q: str = Query(..., min_length=1),
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Returns live prices for a query.
-    If DB has fresh data (< 6h old), returns immediately.
-    Otherwise scrapes live, stores results, then returns.
-    """
-    fresh = await _fresh_prices(db, q)
-    if fresh:
-        return {"query": q, "source": "cache", "results": fresh}
+async def search(q: str = Query(..., min_length=1)):
+    async def event_stream():
+        # 1. Emit cached results immediately
+        async with _session() as db:
+            cached = await _fresh_prices(db, q)
+            already_scraped = await _query_was_scraped(db, q)
 
-    # No fresh data — scrape now and wait
-    await _run_scrapers(q)
-    results = await _fresh_prices(db, q)
-    return {"query": q, "source": "live", "results": results}
+        yield _sse({"type": "results", "source": "cache", "results": cached})
+
+        if already_scraped:
+            yield _sse({"type": "done"})
+            return
+
+        # 2. Run each scraper independently; emit after each one saves
+        async def run_one(store_key, fn):
+            try:
+                return store_key, await fn(q)
+            except Exception as exc:
+                print(f"[{store_key}] error: {exc}")
+                return store_key, []
+
+        tasks = [asyncio.create_task(run_one(k, fn)) for k, fn in SCRAPERS.items()]
+
+        for fut in asyncio.as_completed(tasks):
+            store_key, results = await fut
+            if not results:
+                continue
+            async with _session() as db:
+                store = await _get_store(db, store_key)
+                if store:
+                    for raw in results:
+                        try:
+                            await _upsert_price(db, store, raw)
+                        except Exception as exc:
+                            print(f"[{store_key}] upsert error: {exc}")
+                    await db.commit()
+                    fresh = await _fresh_prices(db, q)
+            yield _sse({"type": "results", "source": "live", "results": fresh})
+
+        # 3. Record this query so subsequent searches hit cache
+        async with _session() as db:
+            db.add(ScrapedQuery(query=q.lower().strip()))
+            await db.commit()
+
+        yield _sse({"type": "done"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/history/{product_id}")
 async def price_history(product_id: int, days: int = 30, db: AsyncSession = Depends(get_db)):
-    """Returns per-store price history for a product over the last N days."""
     cutoff = datetime.utcnow() - timedelta(days=days)
     stmt = (
         select(Price, Store)
@@ -218,16 +238,6 @@ async def price_history(product_id: int, days: int = 30, db: AsyncSession = Depe
 async def list_stores(db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(Store))).scalars().all()
     return [{"key": s.key, "name": s.name, "color": s.color} for s in rows]
-
-
-@app.post("/api/scrape")
-async def trigger_scrape(
-    q: str = Query(..., min_length=1),
-    background_tasks: BackgroundTasks = None,
-):
-    """Manually trigger a background scrape for a query."""
-    background_tasks.add_task(_run_scrapers, q)
-    return {"status": "scrape queued", "query": q}
 
 
 @app.get("/api/health")

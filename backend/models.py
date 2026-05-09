@@ -45,3 +45,10 @@ class Price(Base):
     __table_args__ = (
         Index("ix_prices_product_store_time", "product_id", "store_id", "scraped_at"),
     )
+
+
+class ScrapedQuery(Base):
+    __tablename__ = "scraped_queries"
+    id         = Column(Integer, primary_key=True)
+    query      = Column(String, nullable=False, index=True)
+    scraped_at = Column(DateTime, default=datetime.utcnow, nullable=False)

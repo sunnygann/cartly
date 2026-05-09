@@ -717,35 +717,69 @@ function quickSearch(q) {
   doSearch();
 }
 
-async function doSearch() {
+let _activeSource = null;
+
+function _setSearching(on) {
+  let badge = document.getElementById('stream-badge');
+  if (on) {
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'stream-badge';
+      badge.style.cssText = 'grid-column:1/-1;text-align:center;padding:.75rem;color:var(--muted);font-size:.85rem';
+      badge.textContent = '🔄 Searching more stores…';
+      document.getElementById('price-grid').appendChild(badge);
+    }
+  } else {
+    badge?.remove();
+  }
+}
+
+function doSearch() {
   const q = document.getElementById('search-input').value.trim();
   if (!q) return;
+
+  // Close any in-flight stream
+  if (_activeSource) { _activeSource.close(); _activeSource = null; }
 
   const section = document.getElementById('results-section');
   const grid    = document.getElementById('price-grid');
   section.style.display = 'block';
   document.getElementById('result-label').textContent = q;
-  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--muted)">⏳ Fetching live prices, this may take 15-20s on first load...</div>';
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--muted)">Searching…</div>';
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  let data;
-  try {
-    const res = await fetch(`${API}/api/search?q=${encodeURIComponent(q)}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    data = await res.json();
-  } catch (err) {
-    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--accent)">⚠ Could not reach the backend. Make sure it's running on port 8000.<br><small>${err}</small></div>`;
-    return;
-  }
-
-  if (!data.results.length) {
-    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--muted)">No results found. Try a different search term.</div>';
-    return;
-  }
-
   _lastQuery   = q;
-  _lastResults = data.results;
-  renderResults(q, data.results);
+  _lastResults = [];
+
+  const source = new EventSource(`${API}/api/search?q=${encodeURIComponent(q)}`);
+  _activeSource = source;
+
+  source.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'results') {
+      _lastResults = msg.results;
+      if (msg.results.length > 0) {
+        renderResults(q, msg.results);
+        _setSearching(true);
+      }
+    } else if (msg.type === 'done') {
+      source.close();
+      _activeSource = null;
+      _setSearching(false);
+      if (_lastResults.length === 0) {
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--muted)">No results found. Try a different search term.</div>';
+      }
+    }
+  };
+
+  source.onerror = () => {
+    source.close();
+    _activeSource = null;
+    _setSearching(false);
+    if (_lastResults.length === 0) {
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--accent)">⚠ Could not reach the backend.</div>';
+    }
+  };
 }
 
 // Extract quantity/size tokens from a product name (e.g. "1L", "500ml", "10s", "6pk")

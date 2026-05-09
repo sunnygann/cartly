@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Rules
+
+- **Never** run `git commit`, `git push`, or `surge` without explicit user permission.
+- Only modify code files. Do not run deployment or publish commands autonomously.
+
 ## Local development
 
 ```bash
