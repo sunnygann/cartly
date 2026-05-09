@@ -180,7 +180,7 @@
     .tag {
       background: rgba(0,0,0,.05); border: 1px solid var(--border);
       color: var(--muted); padding: .3rem .65rem; border-radius: 999px;
-      font-size: .72rem; cursor: pointer; transition: all .2s;
+      font-size: .72rem; cursor: pointer; transition: all .2s; white-space: nowrap;
       min-height: 44px; display: inline-flex; align-items: center; /* fix #6: 44pt target */
     }
     .tag:hover { background: rgba(18,183,106,.12); border-color: var(--accent); color: var(--text); }
@@ -544,12 +544,13 @@
   </label>
 
   <div class="popular-tags">
-    <span class="tag" onclick="quickSearch('Royal Umbrella Thai Hom Mali Rice')">Royal Umbrella Rice</span>
-    <span class="tag" onclick="quickSearch('Meiji Low Fat High Protein Milk')">Meiji Milk</span>
-    <span class="tag" onclick="quickSearch('Seng Choon Farm Fresh Eggs')">Seng Choon Eggs</span>
-    <span class="tag" onclick="quickSearch('Myojo Chicken Curry Instant Noodles')">Myojo Noodles</span>
-    <span class="tag" onclick="quickSearch('Gardenia White Bread')">Gardenia Bread</span>
-    <span class="tag" onclick="quickSearch('100PLUS Isotonic Drink')">100PLUS</span>
+    <span class="tag" onclick="quickSearch('Royal Umbrella Thai Hom Mali Rice')">Royal Umbrella Thai Hom Mali Rice</span>
+    <span class="tag" onclick="quickSearch('Meiji Low Fat High Protein Milk')">Meiji Low Fat High Protein Milk</span>
+    <span class="tag" onclick="quickSearch('Seng Choon Farm Fresh Eggs')">Seng Choon Farm Fresh Eggs</span>
+    <span class="tag" onclick="quickSearch('Myojo Chicken Curry Instant Noodles')">Myojo Chicken Curry Instant Noodles</span>
+    <div style="flex-basis:100%;height:0"></div>
+    <span class="tag" onclick="quickSearch('Gardenia White Bread')">Gardenia White Bread</span>
+    <span class="tag" onclick="quickSearch('100PLUS Isotonic Drink')">100PLUS Isotonic Drink</span>
   </div>
 </section>
 
@@ -966,17 +967,23 @@ function groupByProduct(results) {
     const ka = kws(a), kb = kws(b);
     const setA = new Set(ka), setB = new Set(kb);
     if (!setA.size || !setB.size) return 0;
-    const smaller = ka.length <= kb.length ? ka : kb;
-    let shared = 0, total = 0;
-    for (const w of smaller) {
-      const weight = idf(w);
-      total += weight;
-      if (setA.has(w) && setB.has(w)) shared += weight;
-    }
-    return total > 0 ? shared / total : 0;
+    let shared = 0, totalA = 0, totalB = 0;
+    for (const w of ka) { const wt = idf(w); totalA += wt; if (setB.has(w)) shared += wt; }
+    for (const w of kb) { totalB += idf(w); }
+    const union = totalA + totalB - shared;
+    return union > 0 ? shared / union : 0;
+  }
+
+  function realImageUrl(img) {
+    if (!img || img.startsWith('data:')) return null;
+    return img.split('?')[0]; // strip query params before comparing
   }
 
   function isSameProduct(a, b) {
+    // Gate 0: identical real image URL → definite match (bypasses name checks)
+    const imgA = realImageUrl(a.image), imgB = realImageUrl(b.image);
+    if (imgA && imgB && imgA === imgB) return true;
+
     // Gate 1: brand must match if both known
     const bA = normBrand(a.brand), bB = normBrand(b.brand);
     if (bA && bB && bA !== bB) return false;
@@ -986,7 +993,7 @@ function groupByProduct(results) {
     const qB = parseQty(b.unit) || parseQty(b.product_name);
     if (!qtyMatch(qA, qB)) return false;
 
-    // Gate 3: token similarity on qty-stripped names
+    // Gate 3: token similarity on qty-stripped names (Jaccard-weighted IDF)
     return tokenSim(a.product_name, b.product_name) >= THRESHOLD;
   }
 

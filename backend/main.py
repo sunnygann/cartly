@@ -119,11 +119,16 @@ async def _fresh_prices(db: AsyncSession, query: str) -> list[dict]:
     )
     import math
     rows = (await db.execute(stmt)).all()
-    return [
-        _fmt_row(price, product, store)
-        for price, product, store in rows
-        if price.price is not None and math.isfinite(float(price.price))
-    ]
+    seen: set[tuple] = set()
+    results = []
+    for price, product, store in rows:
+        key = (price.product_id, price.store_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        if price.price is not None and math.isfinite(float(price.price)):
+            results.append(_fmt_row(price, product, store))
+    return results
 
 
 async def _query_was_scraped(db: AsyncSession, query: str) -> bool:
