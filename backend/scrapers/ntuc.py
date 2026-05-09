@@ -109,6 +109,15 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
+        // --- UNIT EXTRACTION (size often in a separate span on NTUC) ---
+        let unit = '';
+        const unitRe = /^\d+(?:\.\d+)?\s*(?:ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|caps?|sachets?)\s*$/i;
+        for (const el of card.querySelectorAll('span, p, div')) {
+            if (el.children.length > 0) continue;
+            const t = el.textContent.trim();
+            if (unitRe.test(t)) { unit = t; break; }
+        }
+
         // --- IMAGE EXTRACTION (card-scoped, skip campaign/label images) ---
         let image = '';
         const skipImgRe = /campaign|label|banner|sticker|badge|promo|offer|deal/i;
@@ -123,6 +132,7 @@ _EXTRACT_JS = r"""() => {
             name,
             price: salePrice,
             image,
+            unit,
             original_price: originalPrice,
             promo: promo
         });
@@ -185,7 +195,7 @@ async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
             "price":          float(price),
             "original_price": float(orig) if orig else None,
             "promo":          item.get("promo") or None,
-            "unit":           "",
+            "unit":           (item.get("unit") or "").strip(),
             "image":          item.get("image", ""),
             "barcode":        None,
             "category":       "",

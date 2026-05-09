@@ -988,10 +988,16 @@ function groupByProduct(results) {
     const bA = normBrand(a.brand), bB = normBrand(b.brand);
     if (bA && bB && bA !== bB) return false;
 
-    // Gate 2: quantity must match if both parseable
+    // Gate 2: quantity must match if both parseable.
+    // If only one side has a parseable size, use price ratio as a proxy —
+    // same product across stores shouldn't differ by more than 60% in price.
     const qA = parseQty(a.unit) || parseQty(a.product_name);
     const qB = parseQty(b.unit) || parseQty(b.product_name);
     if (!qtyMatch(qA, qB)) return false;
+    if ((!qA || !qB) && a.price && b.price) {
+      const ratio = a.price / b.price;
+      if (ratio < 0.4 || ratio > 2.5) return false;
+    }
 
     // Gate 3: token similarity on qty-stripped names (Jaccard-weighted IDF)
     return tokenSim(a.product_name, b.product_name) >= THRESHOLD;
