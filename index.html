@@ -243,12 +243,16 @@
     .pg-badge-over { background: rgba(0,0,0,.06); color: var(--muted); }
     .pg-badge-sale  { background: #fef3c7; color: #92400e; }
     .pg-badge-promo { background: rgba(18,183,106,.15); color: #065f46; }
+    .pg-badge-sold-out { background: rgba(150,150,150,.15); color: #888; }
     @media (prefers-color-scheme: dark) {
       .pg-badge-sale  { background: #451a03; color: #fcd34d; }
       .pg-badge-promo { background: rgba(18,183,106,.2); color: #6ee7b7; }
+      .pg-badge-sold-out { background: rgba(150,150,150,.12); color: #999; }
     }
     .pg-price-sale { color: var(--accent); }
     .pg-was { font-size: .68rem; font-weight: 500; color: var(--muted); text-decoration: line-through; margin-left: .25rem; }
+    .pg-row-sold-out { opacity: 0.5; }
+    .pg-price-sold-out { font-size: .75rem; font-weight: 600; color: var(--muted); text-align: right; white-space: nowrap; }
 
     .pg-add {
       background: rgba(0,0,0,.05); border: 1px solid var(--border);
@@ -921,10 +925,22 @@ function groupByProduct(results) {
       brand: r.brand || null,
       unit: r.unit || null,
       image: items.find(x => x.image)?.image || '',
-      items: items.sort((a, b) => a.price - b.price),
+      items: items.sort((a, b) => {
+        const aSO = a.promo === 'SOLD OUT', bSO = b.promo === 'SOLD OUT';
+        if (aSO !== bSO) return aSO ? 1 : -1;
+        return a.price - b.price;
+      }),
     });
   }
-  groups.sort((a, b) => (b.items.length - a.items.length) || (a.items[0].price - b.items[0].price));
+  groups.sort((a, b) => {
+    const aAvail = a.items.filter(x => x.promo !== 'SOLD OUT');
+    const bAvail = b.items.filter(x => x.promo !== 'SOLD OUT');
+    const aLen = aAvail.length || a.items.length;
+    const bLen = bAvail.length || b.items.length;
+    const aPrice = (aAvail[0] || a.items[0]).price;
+    const bPrice = (bAvail[0] || b.items[0]).price;
+    return (bLen - aLen) || (aPrice - bPrice);
+  });
   return groups;
 }
 
@@ -972,14 +988,21 @@ function renderResults(query, results) {
 
   // Build maxPriceCache for savings calculation
   groups.forEach(g => {
-    const maxP = Math.max(...g.items.map(x => x.price));
+    const available = g.items.filter(x => x.promo !== 'SOLD OUT');
+    const maxP = Math.max(...(available.length ? available : g.items).map(x => x.price));
     g.items.forEach(x => { maxPriceCache[x.product_id] = maxP; });
   });
 
   grid.innerHTML = '';
   groups.forEach(group => {
-    const cheapest = group.items[0].price;
-    const isMulti  = group.items.length > 1;
+    // Sort: available items by price first, sold-out items at the bottom
+    const available  = group.items.filter(x => x.promo !== 'SOLD OUT').sort((a, b) => a.price - b.price);
+    const soldOuts   = group.items.filter(x => x.promo === 'SOLD OUT');
+    const sortedItems = [...available, ...soldOuts];
+
+    const cheapest = available.length ? available[0].price : group.items[0].price;
+    const isMulti  = sortedItems.length > 1;
+    const allSoldOut = available.length === 0;
     const cleanRaw = cleanProductName(group.displayName);
 const { clean, sub: parsedSub } = extractMeta(cleanRaw);
     const subParts = [];
@@ -989,17 +1012,30 @@ const { clean, sub: parsedSub } = extractMeta(cleanRaw);
     const sub = subParts.join(' · ');
 
     const card = document.createElement('div');
-    card.className = 'price-card' + (isMulti ? ' multi-store' : '');
+    card.className = 'price-card' + (isMulti && !allSoldOut ? ' multi-store' : '');
 
-    const rows = group.items.map((item, i) => {
-      const isBest    = i === 0 && isMulti;
-      const pct       = i > 0 ? (((item.price - cheapest) / cheapest) * 100).toFixed(0) : 0;
-      const hasMarkdown = item.original_price && item.original_price > item.price;
+    const rows = sortedItems.map((item, i) => {
+      const isSoldOut  = item.promo === 'SOLD OUT';
+      const isBest     = i === 0 && isMulti && !isSoldOut;
+      const pct        = (!isSoldOut && i > 0) ? (((item.price - cheapest) / cheapest) * 100).toFixed(0) : 0;
+      const hasMarkdown = !isSoldOut && item.original_price && item.original_price > item.price;
       const discPct   = hasMarkdown ? Math.round((1 - item.price / item.original_price) * 100) : 0;
-      const promoLabel = item.promo ? normalizePromo(item.promo) : null;
+      const promoLabel = (!isSoldOut && item.promo) ? normalizePromo(item.promo) : null;
       const sn        = cleanProductName(item.product_name).replace(/'/g,"\\'");
       const sk        = item.store_key;
       const snm       = item.store_name.replace(/'/g,"\\'");
+
+      if (isSoldOut) {
+        return `
+        <div class="pg-row pg-row-sold-out">
+          <span class="pg-dot" style="background:${item.store_color}"></span>
+          <span class="pg-store" style="color:${item.store_color}">${item.store_name}</span>
+          <span class="pg-price-sold-out">$${item.price.toFixed(2)}</span>
+          <span class="pg-badge pg-badge-sold-out">Sold Out</span>
+          <span></span>
+        </div>`;
+      }
+
       const badge     = promoLabel
         ? `<span class="pg-badge pg-badge-promo">${promoLabel}</span>`
         : hasMarkdown
