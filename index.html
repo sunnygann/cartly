@@ -169,6 +169,13 @@
     }
     .search-btn:hover { opacity: .85; }
 
+    .fresh-toggle {
+      margin-top: .75rem; display: inline-flex; align-items: center; gap: .4rem;
+      font-size: .78rem; color: var(--muted); cursor: pointer; user-select: none;
+    }
+    .fresh-toggle input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+    .fresh-toggle:has(input:checked) { color: var(--accent); }
+
     .popular-tags { margin-top: 1rem; display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; }
     .tag {
       background: rgba(0,0,0,.05); border: 1px solid var(--border);
@@ -497,6 +504,11 @@
     <button class="search-btn" onclick="doSearch()">Compare</button>
   </div>
 
+  <label class="fresh-toggle">
+    <input type="checkbox" id="fresh-check">
+    <span>Re-scrape on every search</span>
+  </label>
+
   <div class="popular-tags">
     <span class="tag" onclick="quickSearch('Jasmine Rice 5kg')">Jasmine Rice 5kg</span>
     <span class="tag" onclick="quickSearch('Milo 1kg')">Milo 1kg</span>
@@ -792,7 +804,8 @@ function doSearch() {
   _lastQuery   = q;
   _lastResults = [];
 
-  const source = new EventSource(`${API}/api/search?q=${encodeURIComponent(q)}`);
+  const fresh  = document.getElementById('fresh-check').checked;
+  const source = new EventSource(`${API}/api/search?q=${encodeURIComponent(q)}${fresh ? '&fresh=1' : ''}`);
   _activeSource = source;
 
   source.onmessage = (e) => {

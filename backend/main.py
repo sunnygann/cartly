@@ -155,12 +155,12 @@ def _sse(payload: dict) -> str:
 # ── routes ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/search")
-async def search(q: str = Query(..., min_length=1)):
+async def search(q: str = Query(..., min_length=1), fresh: bool = False):
     async def event_stream():
         # 1. Emit cached results immediately
         async with _session() as db:
             cached = await _fresh_prices(db, q)
-            already_scraped = await _query_was_scraped(db, q)
+            already_scraped = (not fresh) and await _query_was_scraped(db, q)
 
         yield _sse({"type": "results", "source": "cache", "results": cached})
 
