@@ -1,21 +1,20 @@
 """
 Cold Storage scraper.
-The site uses Next.js App Router RSC streaming. Product data is pushed into
-window.__next_f as executed JS. We read entry[1] (the unescaped string) from
-each push entry and bracket-count to extract initialProducts JSON cleanly.
+Uses two sources:
+  1. window.__next_f RSC stream (initialProducts) — 30 in-stock items pre-rendered on load.
+  2. RSC fetch responses during scroll — additional items (including sold-out) loaded lazily.
+Products deduplicated by productId. inventoryStatus field used for sold-out detection.
 SSL certificate is expired — we pass ignore_https_errors=True.
-Paginates up to 4 pages (80 results) to capture all search results.
 """
 import asyncio
+import json
 from datetime import datetime
 from playwright.async_api import async_playwright
 from ._base import _UA
 
-_BASE_URL = "https://www.coldstorage.com.sg/search?q={}&page={}"
+_URL = "https://www.coldstorage.com.sg/search?q={}"
 
 _EXTRACT_JS = r"""() => {
-    // window.__next_f holds executed RSC push entries.
-    // entry[1] is the already-unescaped string, so "initialProducts": is literal.
     for (const entry of (window.__next_f || [])) {
         if (!Array.isArray(entry) || typeof entry[1] !== 'string') continue;
         const content = entry[1];
@@ -41,73 +40,99 @@ _EXTRACT_JS = r"""() => {
     return [];
 }"""
 
-_SOLD_OUT_FIELDS = ("soldOut", "isSoldOut")
-_IN_STOCK_FIELDS = ("inStock", "isAvailable", "available")
-_OUT_OF_STOCK_VALUES = ("OutOfStock", "SOLD_OUT", "out_of_stock", "NOT_AVAILABLE")
 
-
-def _is_sold_out(item: dict) -> bool:
-    for field in _SOLD_OUT_FIELDS:
-        if item.get(field):
-            return True
-    for field in _IN_STOCK_FIELDS:
-        val = item.get(field)
-        if val is not None and val is False:
-            return True
-    if item.get("availability") in _OUT_OF_STOCK_VALUES:
-        return True
-    return False
+def _parse_scroll_response(body: bytes) -> list[dict]:
+    """Extract products from an RSC fetch response body (scroll-loaded items)."""
+    results = []
+    try:
+        text = body.decode("utf-8", "replace")
+        for line in text.split("\n"):
+            if not line or ":" not in line or '"products"' not in line:
+                continue
+            colon_idx = line.index(":")
+            payload = line[colon_idx + 1:]
+            if not payload.startswith("{"):
+                continue
+            try:
+                data = json.loads(payload)
+            except Exception:
+                continue
+            if isinstance(data, dict) and isinstance(data.get("products"), list):
+                results.extend(data["products"])
+    except Exception:
+        pass
+    return results
 
 
 async def search_coldstorage(query: str) -> list[dict]:
+    collected: list[dict] = []
+    seen_ids: set = set()
+    pending_responses: list = []
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
+        ctx = await browser.new_context(
+            user_agent=_UA,
+            ignore_https_errors=True,
+            viewport={"width": 1280, "height": 900},
+        )
+        pg = await ctx.new_page()
 
-        all_raw = []
-        page_num = 1
-        max_pages = 4
-
-        while page_num <= max_pages:
-            ctx = await browser.new_context(
-                user_agent=_UA,
-                ignore_https_errors=True,
-                viewport={"width": 1280, "height": 900},
-            )
-            pg = await ctx.new_page()
-
-            url = _BASE_URL.format(query, page_num)
+        async def handle_response(resp):
+            if "coldstorage.com.sg/search" not in resp.url or resp.status != 200:
+                return
+            ct = resp.headers.get("content-type", "")
+            if not any(x in ct for x in ("x-component", "text/plain", "application/json")):
+                return
             try:
-                await pg.goto(url, wait_until="load", timeout=28_000)
-                await asyncio.sleep(2)
-            except Exception as exc:
-                print(f"[cold] page {page_num} load error: {exc}")
-                await ctx.close()
-                break
+                body = await resp.body()
+                pending_responses.append(body)
+            except Exception:
+                pass
 
-            title = await pg.title()
-            print(f"[cold] page {page_num}: {title} | {pg.url}")
+        pg.on("response", handle_response)
 
-            raw = await pg.evaluate(_EXTRACT_JS)
+        url = _URL.format(query)
+        try:
+            await pg.goto(url, wait_until="load", timeout=28_000)
+            await asyncio.sleep(2)
+        except Exception as exc:
+            print(f"[cold] page load error: {exc}")
             await ctx.close()
+            await browser.close()
+            return []
 
-            print(f"[cold] page {page_num}: {len(raw)} items")
+        title = await pg.title()
+        print(f"[cold] loaded: {title} | {pg.url}")
 
-            if not raw:
-                break
+        # Source 1: initial RSC stream
+        initial_raw = await pg.evaluate(_EXTRACT_JS)
+        for item in initial_raw:
+            pid = item.get("productId")
+            if pid not in seen_ids:
+                seen_ids.add(pid)
+                collected.append(item)
+        print(f"[cold] initial RSC: {len(initial_raw)} items")
 
-            all_raw.extend(raw)
+        # Scroll to trigger lazy-loading of additional items (sold-out etc.)
+        await pg.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await asyncio.sleep(3)
 
-            if len(raw) < 20:
-                break
-
-            page_num += 1
-
+        await ctx.close()
         await browser.close()
 
-    print(f"[cold] RSC extracted {len(all_raw)} products total")
+    # Source 2: scroll-triggered RSC fetch responses
+    for body in pending_responses:
+        for item in _parse_scroll_response(body):
+            pid = item.get("productId")
+            if pid not in seen_ids:
+                seen_ids.add(pid)
+                collected.append(item)
+
+    print(f"[cold] total collected: {len(collected)} products")
 
     products = []
-    for item in all_raw:
+    for item in collected:
         name    = (item.get("name") or "").strip()
         regular = item.get("price")
         promo   = item.get("promoPrice")
@@ -115,7 +140,9 @@ async def search_coldstorage(query: str) -> list[dict]:
         if not name or regular is None:
             continue
 
-        sold_out       = _is_sold_out(item)
+        inventory = (item.get("inventoryStatus") or "").lower()
+        sold_out  = bool(inventory) and inventory not in ("in stock", "available")
+
         current_price  = float(promo)   if promo else float(regular)
         original_price = float(regular) if promo else None
         promo_text     = "SOLD OUT" if sold_out else (item.get("discountLabel") or None)
