@@ -127,24 +127,14 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // --- IMAGE EXTRACTION (direct global query, single result) ---
+        // --- IMAGE EXTRACTION (card-scoped, skip campaign/label images) ---
         let image = '';
-        const prodContainer = document.querySelector('[data-testid="recommended-product-image"]');
-        if (prodContainer) {
-            const prodImg = prodContainer.querySelector('img');
-            if (prodImg) {
-                image = prodImg.src || prodImg.dataset.src || '';
-            }
-        }
-        // Fallback (only if above somehow fails): card‑scoped product URL pattern
-        if (!image) {
-            for (const img of card.querySelectorAll('img')) {
-                const src = img.src || img.dataset.src || '';
-                if (src.includes('/fpol/media/images/product/')) {
-                    image = src;
-                    break;
-                }
-            }
+        const skipImgRe = /campaign|label|banner|sticker|badge|promo|offer|deal/i;
+        for (const img of card.querySelectorAll('img')) {
+            const src = img.src || img.dataset.src || '';
+            if (!src || skipImgRe.test(src)) continue;
+            image = src;
+            break;
         }
 
         results.push({
