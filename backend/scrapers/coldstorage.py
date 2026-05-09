@@ -1,39 +1,18 @@
 """
 Cold Storage scraper.
-Extracts product data from the __NEXT_DATA__ JSON payload embedded in the page,
-which contains accurate price/promoPrice/discountLabel fields — no DOM walking needed.
+The site is Next.js App Router (RSC) — product data is server-rendered into
+self.__next_f.push(...) inline scripts. We pull the HTML, regex-extract the
+initialProducts JSON array, and map price/promoPrice directly.
 SSL certificate is expired — we pass ignore_https_errors=True.
 """
+import re
+import json
 import asyncio
 from datetime import datetime
 from playwright.async_api import async_playwright
 from ._base import _UA
 
 _URL = "https://www.coldstorage.com.sg/search?q={}"
-
-# Extract initialProducts from __NEXT_DATA__ JSON embedded in the page.
-# Falls back to scanning other script tags if the path differs.
-_EXTRACT_JS = r"""() => {
-    const nextEl = document.getElementById('__NEXT_DATA__');
-    if (nextEl) {
-        try {
-            const data = JSON.parse(nextEl.textContent);
-            const pp = data?.props?.pageProps;
-            if (Array.isArray(pp?.initialProducts)) return pp.initialProducts;
-            if (Array.isArray(pp?.products))        return pp.products;
-        } catch(e) {}
-    }
-    // Fallback: scan all inline scripts for the initialProducts array
-    for (const s of document.querySelectorAll('script:not([src])')) {
-        const t = s.textContent;
-        if (!t.includes('initialProducts')) continue;
-        try {
-            const m = t.match(/"initialProducts"\s*:\s*(\[[\s\S]*?\])\s*[,}]/);
-            if (m) return JSON.parse(m[1]);
-        } catch(e) {}
-    }
-    return [];
-}"""
 
 
 async def search_coldstorage(query: str, limit: int = 20) -> list[dict]:
@@ -48,8 +27,7 @@ async def search_coldstorage(query: str, limit: int = 20) -> list[dict]:
 
         url = _URL.format(query)
         try:
-            await page.goto(url, wait_until="load", timeout=28_000)
-            await asyncio.sleep(2)
+            await page.goto(url, wait_until="domcontentloaded", timeout=28_000)
         except Exception as exc:
             print(f"[cold] page load error: {exc}")
             await browser.close()
@@ -57,11 +35,22 @@ async def search_coldstorage(query: str, limit: int = 20) -> list[dict]:
 
         title = await page.title()
         print(f"[cold] loaded: {title} | {page.url}")
-
-        raw = await page.evaluate(_EXTRACT_JS)
+        html = await page.content()
         await browser.close()
 
-    print(f"[cold] JSON extracted {len(raw)} products")
+    # initialProducts lives in an RSC self.__next_f.push(...) script block
+    m = re.search(r'"initialProducts":(\[.*?\]),"filters"', html, re.DOTALL)
+    if not m:
+        print("[cold] initialProducts not found in RSC payload")
+        return []
+
+    try:
+        raw = json.loads(m.group(1))
+    except json.JSONDecodeError as exc:
+        print(f"[cold] JSON parse error: {exc}")
+        return []
+
+    print(f"[cold] RSC extracted {len(raw)} products")
 
     products = []
     for item in raw[:limit]:
@@ -69,18 +58,16 @@ async def search_coldstorage(query: str, limit: int = 20) -> list[dict]:
         if not name:
             continue
 
-        regular = item.get("price")        # always present
-        promo   = item.get("promoPrice")   # null when no active promo
+        regular = item.get("price")      # shelf/regular price
+        promo   = item.get("promoPrice") # active sale price, or null
 
         if regular is None:
             continue
 
-        current_price   = float(promo)    if promo    else float(regular)
-        original_price  = float(regular)  if promo    else None
-        promo_text      = item.get("discountLabel") or None   # e.g. "10% off"
-
-        # Image: prefer direct CDN URL over Next.js proxy
-        image = item.get("image") or ""
+        current_price  = float(promo)   if promo else float(regular)
+        original_price = float(regular) if promo else None
+        promo_text     = item.get("discountLabel") or None  # e.g. "10% off"
+        image          = item.get("image") or ""
 
         products.append({
             "name":           name,
