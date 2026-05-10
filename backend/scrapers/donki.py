@@ -6,7 +6,7 @@ which lists their products with prices.
 from datetime import datetime
 from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
-from ._base import _EXTRACT_JS, _UA
+from ._base import _EXTRACT_JS, _UA, block_resources
 
 _URLS = [
     "https://www.lazada.sg/catalog/?q=don+don+donki+{}&from=input",
@@ -39,6 +39,7 @@ async def search_donki(query: str, limit: int = 20, browser=None) -> list[dict]:
         extra_http_headers={"Accept-Language": "en-SG,en;q=0.9"},
     )
     page = await ctx.new_page()
+    await page.route("**/*", block_resources)
     raw = []
 
     try:
@@ -59,6 +60,16 @@ async def search_donki(query: str, limit: int = 20, browser=None) -> list[dict]:
 
             title = await page.title()
             print(f"[donki] loaded: {title} | {page.url}")
+
+            # Quick check before expensive full-DOM extraction
+            no_results = await page.evaluate("""() => {
+                const t = document.body.innerText.toLowerCase();
+                return !t.includes('$') || t.includes('0 results') || t.includes('no results found');
+            }""")
+            if no_results:
+                print(f"[donki] no results detected, skipping URL")
+                continue
+
             raw = await page.evaluate(_EXTRACT_JS)
             print(f"[donki] DOM extracted {len(raw)} price nodes")
 

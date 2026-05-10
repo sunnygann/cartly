@@ -4,6 +4,7 @@ NTUC FairPrice scraper.
 import asyncio
 from datetime import datetime
 from playwright.async_api import async_playwright
+from ._base import block_resources
 
 _SEARCH_URL = "https://www.fairprice.com.sg/search?query={}"
 _UA = (
@@ -150,6 +151,7 @@ async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
 
     ctx = await browser.new_context(user_agent=_UA)
     page = await ctx.new_page()
+    await page.route("**/*", block_resources)
     raw = []
 
     try:
@@ -162,7 +164,7 @@ async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
         except Exception:
             pass
         try:
-            await page.wait_for_load_state("networkidle", timeout=3_000)
+            await page.wait_for_load_state("networkidle", timeout=1_000)
         except Exception:
             pass
         title = await page.title()

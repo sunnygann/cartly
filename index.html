@@ -917,6 +917,7 @@ function extractMeta(name) {
 function groupByProduct(results, storeVariantCount = {}) {
   const THRESHOLD = 0.32;
   const STOP = new Set(['the','and','for','with','per','from','each','singapore','new','value']);
+  const VARIANT_SYNONYMS = new Set(['plain','original','classic','natural','regular','traditional','unflavoured','unsweetened']);
 
   // --- Gate 1: brand ---
   function normBrand(b) { return b ? b.toLowerCase().replace(/[^a-z0-9]/g, '') : null; }
@@ -965,7 +966,8 @@ function groupByProduct(results, storeVariantCount = {}) {
   function idf(w) { return Math.log((N + 1) / ((freq[w] || 0) + 1)); }
 
   function tokenSim(a, b) {
-    const ka = kws(a), kb = kws(b);
+    const ka = kws(a).filter(w => !VARIANT_SYNONYMS.has(w));
+    const kb = kws(b).filter(w => !VARIANT_SYNONYMS.has(w));
     const setA = new Set(ka), setB = new Set(kb);
     if (!setA.size || !setB.size) return 0;
     let shared = 0, totalA = 0, totalB = 0;
@@ -1004,12 +1006,14 @@ function groupByProduct(results, storeVariantCount = {}) {
     if (tokenSim(a.product_name, b.product_name) < THRESHOLD) return false;
 
     // Gate 4: discriminating word veto — if a word with high IDF appears in
-    // one name but not the other, they are different product lines/variants
+    // one name but not the other, they are different product lines/variants.
+    // Exception: variant-neutral words (plain/original/classic/natural/regular)
+    // are synonymous across stores and should never trigger the veto.
     const DISC = 0.8;
     const ka = new Set(kws(a.product_name));
     const kb = new Set(kws(b.product_name));
-    for (const w of ka) { if (!kb.has(w) && idf(w) > DISC) return false; }
-    for (const w of kb) { if (!ka.has(w) && idf(w) > DISC) return false; }
+    for (const w of ka) { if (!kb.has(w) && idf(w) > DISC && !VARIANT_SYNONYMS.has(w)) return false; }
+    for (const w of kb) { if (!ka.has(w) && idf(w) > DISC && !VARIANT_SYNONYMS.has(w)) return false; }
 
     return true;
   }

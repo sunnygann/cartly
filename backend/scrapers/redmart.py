@@ -9,7 +9,7 @@ least one meaningful word from the search query.
 from datetime import datetime
 from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
-from ._base import _EXTRACT_JS, _UA
+from ._base import _EXTRACT_JS, _UA, block_resources
 
 # Proper query-param URL loads real search results; hash URL is a fallback only
 _URLS = [
@@ -46,6 +46,7 @@ async def search_redmart(query: str, limit: int = 20, browser=None) -> list[dict
         extra_http_headers={"Accept-Language": "en-SG,en;q=0.9"},
     )
     page = await ctx.new_page()
+    await page.route("**/*", block_resources)
     raw = []
 
     try:
@@ -67,6 +68,16 @@ async def search_redmart(query: str, limit: int = 20, browser=None) -> list[dict
 
             title = await page.title()
             print(f"[red] loaded: {title} | {page.url}")
+
+            # Quick check before expensive full-DOM extraction
+            no_results = await page.evaluate("""() => {
+                const t = document.body.innerText.toLowerCase();
+                return !t.includes('$') || t.includes('0 results') || t.includes('no results found');
+            }""")
+            if no_results:
+                print(f"[red] no results detected, skipping URL")
+                continue
+
             raw = await page.evaluate(_EXTRACT_JS)
             print(f"[red] DOM extracted {len(raw)} price nodes")
 

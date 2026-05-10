@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime
 from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
+from ._base import block_resources
 
 _PRICE_RE = re.compile(r"\$?\s*(\d+\.\d{2})")
 _UA = (
@@ -32,64 +33,57 @@ async def search_shengsiong(query: str, limit: int = 20, browser=None) -> list[d
         viewport={"width": 1280, "height": 900},
     )
     page = await ctx.new_page()
+    await page.route("**/*", block_resources)
     products = []
 
     try:
-        # Load homepage and use the search box — URL-based search redirects to homepage
-        await page.goto("https://shengsiong.com.sg/", wait_until="domcontentloaded", timeout=25_000)
-
-        search_sel = (
-            "input[type='search'], input[name='q'], input[name='s'], "
-            "input[name='keyword'], input[placeholder*='search' i], "
-            "#search, .search-input, [class*='search' i] input"
-        )
-        search_input = await page.query_selector(search_sel)
-        if not search_input:
-            print("[sheng] search input not found on homepage")
-            return []
-
-        await search_input.click()
-        await search_input.fill(query)
-        await search_input.press("Enter")
-        try:
-            await page.wait_for_load_state("networkidle", timeout=8_000)
-        except Exception:
-            pass
-
-        # If still on homepage or query not in URL, try direct search URLs
-        on_homepage = page.url.rstrip("/") in (
-            "https://shengsiong.com.sg", "https://www.shengsiong.com.sg"
-        )
-        query_missing = not any(
-            w in page.url.lower()
-            for w in query.lower().split()
-            if len(w) > 2
-        )
-        if on_homepage or query_missing:
-            print(f"[sheng] search may not have fired, retrying via URL")
-            retry_candidates = [
-                f"https://shengsiong.com.sg/search/{quote_plus(query)}",
-                f"https://shengsiong.com.sg/search/{query.replace(' ', '-')}",
-                f"https://shengsiong.com.sg/search?q={quote_plus(query)}",
-            ]
-            for retry_url in retry_candidates:
+        # Try direct search URLs first — avoids loading homepage then searching
+        direct_candidates = [
+            f"https://shengsiong.com.sg/search?q={quote_plus(query)}",
+            f"https://shengsiong.com.sg/search/{quote_plus(query)}",
+            f"https://shengsiong.com.sg/search/{query.replace(' ', '-')}",
+        ]
+        landed = False
+        for url in direct_candidates:
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
                 try:
-                    await page.goto(retry_url, wait_until="domcontentloaded", timeout=20_000)
-                    try:
-                        await page.wait_for_load_state("networkidle", timeout=4_000)
-                    except Exception:
-                        pass
-                    title = await page.title()
-                    if any(w in title.lower() for w in query.lower().split() if len(w) > 2):
-                        break
-                    if "online grocery" not in title.lower() and "home" not in title.lower():
-                        break
+                    await page.wait_for_load_state("networkidle", timeout=4_000)
                 except Exception:
                     pass
+                title = await page.title()
+                print(f"[sheng] direct: {title} | {page.url}")
+                is_home = "online grocery" in title.lower() or title.lower().strip() in ("sheng siong", "home")
+                has_query = any(w in title.lower() for w in query.lower().split() if len(w) > 2)
+                if has_query or not is_home:
+                    landed = True
+                    break
+            except Exception as exc:
+                print(f"[sheng] direct URL failed: {exc}")
 
-        loaded_url = page.url
+        if not landed:
+            # Fallback: homepage + search box
+            print("[sheng] direct URLs failed, falling back to homepage search")
+            await page.goto("https://shengsiong.com.sg/", wait_until="domcontentloaded", timeout=25_000)
+            search_sel = (
+                "input[type='search'], input[name='q'], input[name='s'], "
+                "input[name='keyword'], input[placeholder*='search' i], "
+                "#search, .search-input, [class*='search' i] input"
+            )
+            search_input = await page.query_selector(search_sel)
+            if not search_input:
+                print("[sheng] search input not found on homepage")
+                return []
+            await search_input.click()
+            await search_input.fill(query)
+            await search_input.press("Enter")
+            try:
+                await page.wait_for_load_state("networkidle", timeout=8_000)
+            except Exception:
+                pass
+
         title = await page.title()
-        print(f"[sheng] after search: {title} | {loaded_url}")
+        print(f"[sheng] landed: {title} | {page.url}")
 
         # ── 1. JSON-LD structured data ────────────────────────────────────
         json_ld_texts = await page.evaluate("""() =>

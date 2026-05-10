@@ -11,7 +11,7 @@ import asyncio
 import json
 from datetime import datetime
 from playwright.async_api import async_playwright
-from ._base import _UA
+from ._base import _UA, block_resources
 
 _URL = "https://www.coldstorage.com.sg/search?q={}"
 _MAX_SCROLLS = 20
@@ -83,6 +83,7 @@ async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[
         viewport={"width": 1280, "height": 900},
     )
     pg = await ctx.new_page()
+    await pg.route("**/*", block_resources)
 
     rsc_event = asyncio.Event()
 
