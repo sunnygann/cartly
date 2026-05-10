@@ -181,9 +181,13 @@ async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[
         inventory = (item.get("inventoryStatus") or "").lower()
         sold_out  = bool(inventory) and inventory not in ("in stock", "available")
 
-        current_price  = float(promo)   if promo else float(regular)
-        original_price = float(regular) if promo else None
-        promo_text     = "SOLD OUT" if sold_out else (item.get("discountLabel") or None)
+        if sold_out:
+            current_price  = float(regular)
+            original_price = None
+        else:
+            current_price  = float(promo) if promo else float(regular)
+            original_price = float(regular) if promo else None
+        promo_text = "SOLD OUT" if sold_out else (item.get("discountLabel") or None)
         image          = item.get("image") or ""
 
         products.append({
