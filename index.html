@@ -974,7 +974,11 @@ function groupByProduct(results, storeVariantCount = {}) {
     for (const w of ka) { const wt = idf(w); totalA += wt; if (setB.has(w)) shared += wt; }
     for (const w of kb) { totalB += idf(w); }
     const union = totalA + totalB - shared;
-    return union > 0 ? shared / union : 0;
+    if (union > 0) return shared / union;
+    // All tokens have zero IDF (every word appears in every result) — fall back to unweighted Jaccard
+    const intersect = [...setA].filter(w => setB.has(w)).length;
+    const unionSize = new Set([...setA, ...setB]).size;
+    return unionSize > 0 ? intersect / unionSize : 0;
   }
 
   function realImageUrl(img) {
@@ -983,32 +987,27 @@ function groupByProduct(results, storeVariantCount = {}) {
   }
 
   function isSameProduct(a, b) {
-    const _dbg = (a.product_name.toLowerCase().includes('plain') && b.product_name.toLowerCase().includes('original')) ||
-                 (a.product_name.toLowerCase().includes('original') && b.product_name.toLowerCase().includes('plain'));
-
     // Gate 0: identical real image URL → definite match (bypasses name checks)
     const imgA = realImageUrl(a.image), imgB = realImageUrl(b.image);
     if (imgA && imgB && imgA === imgB) return true;
 
     // Gate 1: brand must match if both known
     const bA = normBrand(a.brand), bB = normBrand(b.brand);
-    if (bA && bB && bA !== bB) { if (_dbg) console.log('[dbg] gate1 fail', bA, bB); return false; }
+    if (bA && bB && bA !== bB) return false;
 
     // Gate 2: quantity must match if both parseable.
     // If only one side has a parseable size, use price ratio as a proxy —
     // same product across stores shouldn't differ by more than 60% in price.
     const qA = parseQty(a.unit) || parseQty(a.product_name);
     const qB = parseQty(b.unit) || parseQty(b.product_name);
-    if (!qtyMatch(qA, qB)) { if (_dbg) console.log('[dbg] gate2 qty fail', qA, qB); return false; }
+    if (!qtyMatch(qA, qB)) return false;
     if ((!qA || !qB) && a.price && b.price) {
       const ratio = a.price / b.price;
-      if (ratio < 0.4 || ratio > 2.5) { if (_dbg) console.log('[dbg] gate2 price fail', ratio); return false; }
+      if (ratio < 0.4 || ratio > 2.5) return false;
     }
 
     // Gate 3: token similarity on qty-stripped names (Jaccard-weighted IDF)
-    const sim = tokenSim(a.product_name, b.product_name);
-    if (_dbg) console.log('[dbg] gate3 sim', sim, 'threshold', THRESHOLD, 'ka', kws(a.product_name).filter(w=>!VARIANT_SYNONYMS.has(w)), 'kb', kws(b.product_name).filter(w=>!VARIANT_SYNONYMS.has(w)));
-    if (sim < THRESHOLD) return false;
+    if (tokenSim(a.product_name, b.product_name) < THRESHOLD) return false;
 
     // Gate 4: discriminating word veto — if a word with high IDF appears in
     // one name but not the other, they are different product lines/variants.
@@ -1017,10 +1016,9 @@ function groupByProduct(results, storeVariantCount = {}) {
     const DISC = 0.8;
     const ka = new Set(kws(a.product_name));
     const kb = new Set(kws(b.product_name));
-    for (const w of ka) { if (!kb.has(w) && idf(w) > DISC && !VARIANT_SYNONYMS.has(w)) { if (_dbg) console.log('[dbg] gate4 veto by ka word', w, idf(w)); return false; } }
-    for (const w of kb) { if (!ka.has(w) && idf(w) > DISC && !VARIANT_SYNONYMS.has(w)) { if (_dbg) console.log('[dbg] gate4 veto by kb word', w, idf(w)); return false; } }
+    for (const w of ka) { if (!kb.has(w) && idf(w) > DISC && !VARIANT_SYNONYMS.has(w)) return false; }
+    for (const w of kb) { if (!ka.has(w) && idf(w) > DISC && !VARIANT_SYNONYMS.has(w)) return false; }
 
-    if (_dbg) console.log('[dbg] MATCH', a.product_name, '<=>', b.product_name);
     return true;
   }
 
