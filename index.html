@@ -1098,8 +1098,13 @@ function normalizePromo(text, price, originalPrice) {
   return t.replace(/\s+/g, ' ');
 }
 
+const _NAME_SUBS = [
+  [/\bGardenia(\s+Enriched)?\s+White\s+Bread\b/gi, 'Gardenia Bread'],
+];
+
 function cleanProductName(raw) {
   if (!raw) return '';
+  for (const [pat, rep] of _NAME_SUBS) raw = raw.replace(pat, rep);
   // Strip promo prefixes that bleed into scraped names (e.g. "Any 2 At ", "3 For ", "2 @ ")
   raw = raw.replace(/^(?:any\s+\d+\s+(?:at|for|@)\s*|\d+\s+(?:for|@|at)\s*|buy\s+\d+\s+get\s+\d+\s*)/i, '').trim();
   // If the name still contains garbage (price, rating, add-to-cart), extract the real name

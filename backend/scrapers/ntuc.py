@@ -171,6 +171,15 @@ async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
             await page.wait_for_load_state("networkidle", timeout=1_000)
         except Exception:
             pass
+        # Scroll through the page so intersection observers fire and lazy img.src
+        # values get replaced with real URLs before we extract.
+        await page.evaluate("""async () => {
+            const delay = ms => new Promise(r => setTimeout(r, ms));
+            const h = document.body.scrollHeight;
+            for (let y = 300; y < h; y += 400) { window.scrollTo(0, y); await delay(40); }
+            window.scrollTo(0, 0);
+        }""")
+        await asyncio.sleep(0.3)
         title = await page.title()
         print(f"[ntuc] loaded: {title}")
         raw = await page.evaluate(_EXTRACT_JS)
