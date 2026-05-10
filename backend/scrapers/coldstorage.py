@@ -14,7 +14,7 @@ from playwright.async_api import async_playwright
 from ._base import _UA
 
 _URL = "https://www.coldstorage.com.sg/search?q={}"
-_MAX_SCROLLS = 10
+_MAX_SCROLLS = 20
 
 _EXTRACT_JS = r"""() => {
     for (const entry of (window.__next_f || [])) {
@@ -129,16 +129,24 @@ async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[
                 collected.append(item)
         print(f"[cold] initial RSC: {len(initial_raw)} items")
 
-        # Source 2: scroll repeatedly to trigger lazy-loading
+        # Source 2: scroll in 800px increments to trigger lazy-loading
+        current_y = 0
+        scroll_height = await pg.evaluate("() => document.body.scrollHeight")
         for scroll_n in range(_MAX_SCROLLS):
             rsc_event.clear()
             prev_count = len(pending_responses)
-            await pg.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            current_y = min(current_y + 800, scroll_height)
+            await pg.evaluate(f"window.scrollTo(0, {current_y})")
             try:
                 await asyncio.wait_for(rsc_event.wait(), timeout=3.0)
+                # Page grew — update scroll height
+                scroll_height = await pg.evaluate("() => document.body.scrollHeight")
             except asyncio.TimeoutError:
                 pass
             if len(pending_responses) == prev_count:
+                if current_y < scroll_height:
+                    # Still more page to scroll through — keep going without a response
+                    continue
                 print(f"[cold] no new RSC response on scroll {scroll_n + 1}, stopping")
                 break
 
