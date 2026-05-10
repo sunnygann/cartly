@@ -123,7 +123,11 @@ _EXTRACT_JS = r"""() => {
         let image = '';
         const skipImgRe = /campaign|label|banner|sticker|badge|promo|offer|deal/i;
         for (const img of card.querySelectorAll('img')) {
-            const src = img.src || img.dataset.src || '';
+            // Next.js lazy images: srcset always has real URLs even when src is a placeholder
+            let src = '';
+            if (img.srcset) src = img.srcset.split(',')[0].trim().split(/\s+/)[0];
+            if (!src && img.dataset.src && !img.dataset.src.startsWith('data:')) src = img.dataset.src;
+            if (!src && img.src && !img.src.startsWith('data:')) src = img.src;
             if (!src || skipImgRe.test(src)) continue;
             image = src;
             break;

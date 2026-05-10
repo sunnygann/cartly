@@ -1042,7 +1042,7 @@ function groupByProduct(results, storeVariantCount = {}) {
       displayName: nameSource.product_name,
       brand: nameSource.brand || null,
       unit: nameSource.unit || null,
-      image: items.find(x => x.image)?.image || '',
+      image: items.find(x => realImageUrl(x.image))?.image || '',
       items: items.sort((a, b) => {
         const aSO = a.promo === 'SOLD OUT', bSO = b.promo === 'SOLD OUT';
         if (aSO !== bSO) return aSO ? 1 : -1;

@@ -71,7 +71,13 @@ _EXTRACT_JS = """() => {
                 }
                 if (!img) {
                     const imgEl = el.querySelector('img');
-                    if (imgEl) img = imgEl.src || imgEl.dataset.src || '';
+                    if (imgEl) {
+                        let src = '';
+                        if (imgEl.srcset) src = imgEl.srcset.split(',')[0].trim().split(/\s+/)[0];
+                        if (!src && imgEl.dataset.src && !imgEl.dataset.src.startsWith('data:')) src = imgEl.dataset.src;
+                        if (!src && imgEl.src && !imgEl.src.startsWith('data:')) src = imgEl.src;
+                        img = src;
+                    }
                 }
                 if (name && img) foundCard = true;
             }
