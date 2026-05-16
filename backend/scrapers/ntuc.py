@@ -17,26 +17,9 @@ _EXTRACT_JS = r"""() => {
     const priceRe = /^\$?(\d+\.\d{2})$/;
     const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
     const promoJunk = /add\s+to\s+cart|\d+\.\d+\s*\(\d+\)/i;
-
-    // STEP 1: collect ALL promo texts from the page
-    const allPromos = [];
-    for (const el of document.querySelectorAll('[data-testid="promo-label"]')) {
-        const t = el.textContent.trim();
-        if (t.length > 3 && t.length < 80 && !promoJunk.test(t) && !allPromos.includes(t)) {
-            allPromos.push(t);
-        }
-    }
     const promoRe = /\d\+\d\s*free|\d-for-\d|\bbuy\s+\d+\s+get\s+\d+|(?:any\s+)?\d+\s+(?:for|@|at)\s+\$[\d.]+/i;
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let tn;
-    while (tn = walker.nextNode()) {
-        const t = tn.textContent.trim();
-        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t) && !allPromos.includes(t)) {
-            allPromos.push(t);
-        }
-    }
 
-    // STEP 2: find product cards (image-first for tight boundary, then promo within card)
+    // STEP 1: find product cards (image-first for tight boundary)
     const cards = new Map();
 
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
@@ -51,7 +34,6 @@ _EXTRACT_JS = r"""() => {
         let el = node.parentElement;
         let card = null;
 
-        // Walk up to find the tightest element that looks like a product card
         for (let i = 0; i < 10; i++) {
             if (!el || el === document.body) break;
             if (el.querySelector('img') && el.children.length >= 2) {
@@ -63,22 +45,6 @@ _EXTRACT_JS = r"""() => {
 
         if (!card) continue;
 
-        // Find promo: check within card first, then immediate parent
-        // (parent check catches promo labels that are siblings of the image element)
-        // Parent size guard (<=8 children) prevents anchoring to large product-grid sections.
-        let promo = null;
-        const promoTargets = [card];
-        if (card.parentElement && card.parentElement !== document.body
-                && card.parentElement.children.length <= 8) {
-            promoTargets.push(card.parentElement);
-        }
-        for (const target of promoTargets) {
-            for (const p of allPromos) {
-                if (target.textContent.includes(p)) { promo = p; break; }
-            }
-            if (promo) break;
-        }
-
         let insideStrike = false;
         let p = node.parentElement;
         while (p && p !== card && p !== document.body) {
@@ -86,14 +52,29 @@ _EXTRACT_JS = r"""() => {
             p = p.parentElement;
         }
 
-        if (!cards.has(card)) cards.set(card, { prices: [], promo: promo });
+        if (!cards.has(card)) cards.set(card, { prices: [] });
         cards.get(card).prices.push({ node, price, insideStrike });
     }
 
-    // STEP 3: build results
+    // STEP 2: build results
     const results = [];
     for (const [card, data] of cards.entries()) {
-        const { prices, promo } = data;
+        const { prices } = data;
+
+        // Promo: [data-testid="promo-label"] first, then TreeWalker text scan — both scoped to card
+        let promo = null;
+        for (const el of card.querySelectorAll('[data-testid="promo-label"]')) {
+            const t = el.textContent.trim();
+            if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) { promo = t; break; }
+        }
+        if (!promo) {
+            const tw = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+            let tn;
+            while ((tn = tw.nextNode())) {
+                const t = tn.textContent.trim();
+                if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promo = t; break; }
+            }
+        }
         if (prices.length === 0) continue;
 
         let salePrice = null, originalPrice = null;
