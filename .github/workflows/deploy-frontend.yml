@@ -14,9 +14,7 @@ jobs:
         run: |
           DATE="$(date +'%Y.%m.%d')"
           SHA="$(git rev-parse --short HEAD)"
-          COUNT=$(git log --oneline --since="$(date +'%Y-%m-%d')T00:00:00" HEAD | wc -l | tr -d ' ')
-          PUSH_NUM=$(printf "%02d" "$COUNT")
-          VERSION="${DATE}.${PUSH_NUM}.${SHA}"
+          VERSION="${DATE}.${SHA}"
           sed -i "s/%%VERSION%%/${VERSION}/g" index.html
           echo "Version: ${VERSION}"
 

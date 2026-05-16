@@ -167,21 +167,23 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
             )
         except Exception:
             pass
-        # Adaptive scroll: 500px steps at 40ms, exits early if page height
-        # stabilises for 2 consecutive passes (infinite-scroll already settled).
+        # Adaptive scroll: 500px steps at 40ms. Waits 600ms after each full
+        # pass to give FairPrice's infinite-scroll API time to respond and
+        # render. Exits only after 3 consecutive passes with no height growth
+        # to avoid cutting off slow-loading batches.
         await page.evaluate("""async () => {
             const delay = ms => new Promise(r => setTimeout(r, ms));
             let lastH = 0, noGrowth = 0;
-            for (let pass = 0; pass < 8; pass++) {
+            for (let pass = 0; pass < 15; pass++) {
                 const h = document.body.scrollHeight;
-                if (h === lastH) { if (++noGrowth >= 2) break; }
+                if (h === lastH) { if (++noGrowth >= 3) break; }
                 else { noGrowth = 0; }
                 lastH = h;
                 for (let y = 500; y <= h; y += 500) {
                     window.scrollTo(0, y);
                     await delay(40);
                 }
-                await delay(300);
+                await delay(600);
             }
             window.scrollTo(0, 0);
         }""")
