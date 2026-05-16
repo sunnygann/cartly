@@ -34,9 +34,9 @@ _EXTRACT_JS = r"""() => {
         let el = node.parentElement;
         let card = null;
 
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
-            if (el.querySelector('img') && el.children.length >= 2) {
+            if (el.querySelector('img') && el.children.length >= 2 && el.children.length <= 15) {
                 card = el;
                 break;
             }
