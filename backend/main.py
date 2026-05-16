@@ -68,7 +68,7 @@ async def _upsert_price(db: AsyncSession, store: Store, raw: dict):
     r = await db.execute(
         select(Product).where(func.lower(Product.name) == name_lower.lower())
     )
-    product = r.scalar_one_or_none()
+    product = r.scalars().first()
     if not product:
         product = Product(
             name=name_lower,
