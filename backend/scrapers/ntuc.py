@@ -4,6 +4,7 @@ NTUC FairPrice scraper.
 import asyncio
 from datetime import datetime
 from playwright.async_api import async_playwright
+from ._base import block_resources
 
 _SEARCH_URL = "https://www.fairprice.com.sg/search?query={}"
 _UA = (
@@ -149,11 +150,12 @@ _EXTRACT_JS = r"""() => {
 }"""
 
 
-async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
+async def search_ntuc(query: str) -> list[dict]:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         ctx = await browser.new_context(user_agent=_UA)
         page = await ctx.new_page()
+        await page.route("**/*", block_resources)
 
         try:
             await page.goto(_SEARCH_URL.format(query), wait_until="load", timeout=30_000)
@@ -174,6 +176,21 @@ async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
         title = await page.title()
         print(f"[ntuc] loaded: {title}")
 
+        # Multi-pass scroll to capture all infinite-scroll products
+        prev_height = 0
+        no_change_count = 0
+        for _ in range(20):
+            height = await page.evaluate("document.body.scrollHeight")
+            if height == prev_height:
+                no_change_count += 1
+                if no_change_count >= 2:
+                    break
+            else:
+                no_change_count = 0
+            prev_height = height
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await asyncio.sleep(1.5)
+
         raw = await page.evaluate(_EXTRACT_JS)
         await browser.close()
 
@@ -191,7 +208,7 @@ async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
         return n
 
     products = []
-    for item in raw[:limit]:
+    for item in raw:
         name  = clean_name((item.get("name") or "").strip())
         price = item.get("price")
         if not name or not price:

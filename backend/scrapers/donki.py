@@ -25,7 +25,7 @@ def _is_relevant(name: str, query: str) -> bool:
     return any(w in name_l for w in q_words)
 
 
-async def search_donki(query: str, limit: int = 20) -> list[dict]:
+async def search_donki(query: str) -> list[dict]:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
         ctx = await browser.new_context(
@@ -64,7 +64,7 @@ async def search_donki(query: str, limit: int = 20) -> list[dict]:
         await browser.close()
 
     products = []
-    for item in raw[:limit]:
+    for item in raw:
         name  = (item.get("name") or "").strip()
         price = item.get("price")
         if not name or not price:

@@ -10,7 +10,7 @@ import asyncio
 import json
 from datetime import datetime
 from playwright.async_api import async_playwright
-from ._base import _UA
+from ._base import _UA, block_resources
 
 _URL = "https://www.coldstorage.com.sg/search?q={}"
 
@@ -77,6 +77,7 @@ async def search_coldstorage(query: str) -> list[dict]:
             viewport={"width": 1280, "height": 900},
         )
         pg = await ctx.new_page()
+        await pg.route("**/*", block_resources)
 
         async def handle_response(resp):
             if "coldstorage.com.sg/search" not in resp.url or resp.status != 200:
@@ -114,20 +115,32 @@ async def search_coldstorage(query: str) -> list[dict]:
                 collected.append(item)
         print(f"[cold] initial RSC: {len(initial_raw)} items")
 
-        # Scroll to trigger lazy-loading of additional items (sold-out etc.)
-        await pg.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await asyncio.sleep(3)
+        # Multi-pass scroll to trigger all lazy-loaded batches
+        prev_count = len(collected)
+        no_change_count = 0
+        for _ in range(15):
+            await pg.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await asyncio.sleep(2)
+
+            for body in list(pending_responses):
+                for item in _parse_scroll_response(body):
+                    pid = item.get("productId")
+                    if pid not in seen_ids:
+                        seen_ids.add(pid)
+                        collected.append(item)
+            pending_responses.clear()
+
+            if len(collected) == prev_count:
+                no_change_count += 1
+                if no_change_count >= 2:
+                    break
+            else:
+                no_change_count = 0
+            prev_count = len(collected)
+            print(f"[cold] scroll pass: {len(collected)} collected")
 
         await ctx.close()
         await browser.close()
-
-    # Source 2: scroll-triggered RSC fetch responses
-    for body in pending_responses:
-        for item in _parse_scroll_response(body):
-            pid = item.get("productId")
-            if pid not in seen_ids:
-                seen_ids.add(pid)
-                collected.append(item)
 
     print(f"[cold] total collected: {len(collected)} products")
 

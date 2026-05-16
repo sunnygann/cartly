@@ -24,7 +24,7 @@ _UA = (
 )
 
 
-async def search_shengsiong(query: str, limit: int = 20) -> list[dict]:
+async def search_shengsiong(query: str) -> list[dict]:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         ctx = await browser.new_context(
@@ -118,7 +118,7 @@ async def search_shengsiong(query: str, limit: int = 20) -> list[dict]:
         if products:
             print(f"[sheng] JSON-LD gave {len(products)} products")
             await browser.close()
-            return products[:limit]
+            return products
 
         # ── 2. DOM sweep: every element with a $ price ───────────────────
         # Get all text nodes that contain a price, walk up to find a name
@@ -127,7 +127,7 @@ async def search_shengsiong(query: str, limit: int = 20) -> list[dict]:
         )
         print(f"[sheng] price elements found: {len(price_els)}")
 
-        for el in price_els[:limit * 3]:
+        for el in price_els:
             try:
                 price_text = (await el.inner_text()).strip()
                 m = _PRICE_RE.search(price_text)
@@ -196,7 +196,7 @@ async def search_shengsiong(query: str, limit: int = 20) -> list[dict]:
     else:
         print("[sheng] no products found — site structure needs manual inspection")
 
-    return products[:limit]
+    return products
 
 
 def _from_json_ld(item: dict) -> dict | None:

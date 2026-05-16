@@ -32,7 +32,7 @@ async def _resolve_via_doh(hostname: str) -> str | None:
     return None
 
 
-async def search_giant(query: str, limit: int = 20) -> list[dict]:
+async def search_giant(query: str) -> list[dict]:
     ip = await _resolve_via_doh(_ALGOLIA_HOST)
 
     if not ip:
@@ -45,7 +45,7 @@ async def search_giant(query: str, limit: int = 20) -> list[dict]:
         "Content-Type": "application/json",
         "Host": _ALGOLIA_HOST,
     }
-    payload = {"query": query, "hitsPerPage": min(limit, 50)}
+    payload = {"query": query, "hitsPerPage": 1000}
 
     try:
         async with httpx.AsyncClient(verify=False, timeout=15) as client:
@@ -81,8 +81,5 @@ async def search_giant(query: str, limit: int = 20) -> list[dict]:
             "category": "", "store": "giant",
             "scraped_at": datetime.utcnow(),
         })
-        if len(products) >= limit:
-            break
-
     print(f"[giant] parsed {len(products)} products")
     return products

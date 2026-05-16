@@ -3,6 +3,14 @@ import asyncio
 from datetime import datetime
 from playwright.async_api import async_playwright
 
+_BLOCKED_TYPES = {"image", "font", "media", "stylesheet"}
+
+async def block_resources(route):
+    if route.request.resource_type in _BLOCKED_TYPES:
+        await route.abort()
+    else:
+        await route.continue_()
+
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -121,7 +129,6 @@ async def scrape_store(
     store_key: str,
     search_urls: list[str],
     query: str,
-    limit: int = 20,
     wait_selector: str = None,
     extra_sleep: float = 2.0,
 ) -> list[dict]:
@@ -169,7 +176,7 @@ async def scrape_store(
         return n
 
     products = []
-    for item in raw[:limit]:
+    for item in raw:
         name  = clean_name((item.get("name") or "").strip())
         price = item.get("price")
         if not name or not price:
