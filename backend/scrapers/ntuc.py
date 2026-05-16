@@ -63,13 +63,20 @@ _EXTRACT_JS = r"""() => {
 
         if (!card) continue;
 
-        // Find promo only within the card itself (avoids anchoring to large section containers)
+        // Find promo: check within card first, then immediate parent
+        // (parent check catches promo labels that are siblings of the image element)
+        // Parent size guard (<=8 children) prevents anchoring to large product-grid sections.
         let promo = null;
-        for (const p of allPromos) {
-            if (card.textContent.includes(p)) {
-                promo = p;
-                break;
+        const promoTargets = [card];
+        if (card.parentElement && card.parentElement !== document.body
+                && card.parentElement.children.length <= 8) {
+            promoTargets.push(card.parentElement);
+        }
+        for (const target of promoTargets) {
+            for (const p of allPromos) {
+                if (target.textContent.includes(p)) { promo = p; break; }
             }
+            if (promo) break;
         }
 
         let insideStrike = false;
