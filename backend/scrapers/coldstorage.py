@@ -1,30 +1,32 @@
 """
 Cold Storage scraper.
 Uses two sources:
-  1. window.__next_f RSC stream — scans all entries for any known product-list key
-     (initialProducts, products, searchProducts, productList, items).
-  2. RSC fetch responses intercepted during scroll — additional items loaded lazily.
+  1. window.__next_f RSC stream (initialProducts) — 30 in-stock items pre-rendered on load.
+  2. RSC fetch responses during scroll — additional items (including sold-out) loaded lazily.
 Products deduplicated by productId. inventoryStatus field used for sold-out detection.
 SSL certificate is expired — we pass ignore_https_errors=True.
+Scrolls up to MAX_SCROLLS times, stopping early when no new RSC response arrives.
 """
 import asyncio
 import json
-import re
 from datetime import datetime
 from playwright.async_api import async_playwright
 from ._base import _UA, block_resources
 
 _URL = "https://www.coldstorage.com.sg/search?q={}"
-_MAX_SCROLLS = 30
+_MAX_SCROLLS = 20
 
 _EXTRACT_JS = r"""() => {
-    const MARKERS = ['"initialProducts":', '"products":', '"searchProducts":', '"productList":', '"items":'];
-    const seen = new Set();
-    const results = [];
+    for (const entry of (window.__next_f || [])) {
+        if (!Array.isArray(entry) || typeof entry[1] !== 'string') continue;
+        const content = entry[1];
+        const marker = '"initialProducts":';
+        const idx = content.indexOf(marker);
+        if (idx === -1) continue;
 
-    function extractArray(content, markerEnd) {
-        const arrStart = content.indexOf('[', markerEnd);
-        if (arrStart === -1 || arrStart - markerEnd > 30) return null;
+        const arrStart = content.indexOf('[', idx + marker.length);
+        if (arrStart === -1) continue;
+
         let depth = 0;
         for (let i = arrStart; i < content.length; i++) {
             if (content[i] === '[') depth++;
@@ -32,103 +34,39 @@ _EXTRACT_JS = r"""() => {
                 depth--;
                 if (depth === 0) {
                     try { return JSON.parse(content.slice(arrStart, i + 1)); }
-                    catch (e) { return null; }
-                }
-            }
-        }
-        return null;
-    }
-
-    for (const entry of (window.__next_f || [])) {
-        if (!Array.isArray(entry) || typeof entry[1] !== 'string') continue;
-        const content = entry[1];
-        for (const marker of MARKERS) {
-            let searchFrom = 0;
-            let idx;
-            while ((idx = content.indexOf(marker, searchFrom)) !== -1) {
-                searchFrom = idx + 1;
-                const arr = extractArray(content, idx + marker.length);
-                if (!Array.isArray(arr) || arr.length === 0) continue;
-                // Must contain productId to be a product list
-                if (!arr[0] || typeof arr[0] !== 'object' || !arr[0].productId) continue;
-                for (const p of arr) {
-                    if (p.productId && !seen.has(p.productId)) {
-                        seen.add(p.productId);
-                        results.push(p);
-                    }
+                    catch (e) { return []; }
                 }
             }
         }
     }
-    return results;
+    return [];
 }"""
 
 
-_PRODUCT_KEYS = ("products", "searchProducts", "productList", "items", "initialProducts", "data")
-
-def _find_products(obj) -> list | None:
-    """Recursively search for a known product-list key containing product dicts."""
-    if isinstance(obj, dict):
-        for key in _PRODUCT_KEYS:
-            v = obj.get(key)
-            if isinstance(v, list) and v and isinstance(v[0], dict) and "productId" in v[0]:
-                return v
-        for val in obj.values():
-            found = _find_products(val)
-            if found is not None:
-                return found
-    elif isinstance(obj, list):
-        for item in obj:
-            found = _find_products(item)
-            if found is not None:
-                return found
-    return None
-
-
-_T_PREFIX = re.compile(r'^T[0-9a-fA-F]+,')
-# Any of these strings appearing on a line suggests it may contain product data
-_SCROLL_RSC_HINTS = ('"products"', '"searchProducts"', '"productList"', '"initialProducts"', '"productId"')
-
-
 def _parse_scroll_response(body: bytes) -> list[dict]:
-    """Extract products from an RSC fetch response body."""
+    """Extract products from an RSC fetch response body (scroll-loaded items)."""
     results = []
     try:
         text = body.decode("utf-8", "replace")
         for line in text.split("\n"):
-            line = line.strip()
-            if not line or not any(h in line for h in _SCROLL_RSC_HINTS):
+            if not line or ":" not in line or '"products"' not in line:
                 continue
-            colon_idx = line.find(":")
-            if colon_idx == -1:
-                continue
+            colon_idx = line.index(":")
             payload = line[colon_idx + 1:]
-            # Handle Next.js RSC text-blob format "Tlen,"
-            if _T_PREFIX.match(payload):
-                payload = payload[payload.index(",") + 1:]
-            if not payload:
+            if not payload.startswith("{"):
                 continue
-            if payload[0] not in ('{', '['):
-                for ch in ('{', '['):
-                    idx = payload.find(ch)
-                    if idx != -1:
-                        payload = payload[idx:]
-                        break
-                else:
-                    continue
             try:
                 data = json.loads(payload)
             except Exception:
                 continue
-            products = _find_products(data)
-            if products:
-                results.extend(products)
+            if isinstance(data, dict) and isinstance(data.get("products"), list):
+                results.extend(data["products"])
     except Exception:
         pass
     return results
 
 
-async def search_coldstorage(query: str, browser=None) -> list[dict]:
+async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[dict]:
     collected: list[dict] = []
     seen_ids: set = set()
     pending_responses: list = []
@@ -150,11 +88,10 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
     rsc_event = asyncio.Event()
 
     async def handle_response(resp):
-        if "coldstorage.com.sg" not in resp.url or resp.status != 200:
+        if "coldstorage.com.sg/search" not in resp.url or resp.status != 200:
             return
         ct = resp.headers.get("content-type", "")
-        # Only read RSC/API responses — never JS bundles or HTML pages
-        if not any(x in ct for x in ("x-component", "text/plain", "application/json", "octet-stream")):
+        if not any(x in ct for x in ("x-component", "text/plain", "application/json")):
             return
         try:
             body = await resp.body()
@@ -169,6 +106,7 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
         url = _URL.format(query)
         await pg.goto(url, wait_until="domcontentloaded", timeout=28_000)
 
+        # Wait for initial RSC stream to deliver products
         try:
             await pg.wait_for_function(
                 """() => (window.__next_f || []).some(
@@ -192,12 +130,9 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
                 collected.append(item)
         print(f"[cold] initial RSC: {len(initial_raw)} items")
 
-        # Source 2: scroll to trigger lazy-loading.
-        # Keep timeouts short (1.5s RSC wait, 4 consecutive misses) so total
-        # scroll time stays well within the 45s asyncio.wait_for budget.
+        # Source 2: scroll in 800px increments to trigger lazy-loading
         current_y = 0
         scroll_height = await pg.evaluate("() => document.body.scrollHeight")
-        consecutive_no_rsc = 0
         for scroll_n in range(_MAX_SCROLLS):
             rsc_event.clear()
             prev_count = len(pending_responses)
@@ -205,51 +140,32 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
             await pg.evaluate(f"window.scrollTo(0, {current_y})")
             try:
                 await asyncio.wait_for(rsc_event.wait(), timeout=3.0)
+                # Page grew — update scroll height
                 scroll_height = await pg.evaluate("() => document.body.scrollHeight")
-                consecutive_no_rsc = 0
             except asyncio.TimeoutError:
-                consecutive_no_rsc += 1
-                if consecutive_no_rsc >= 4:
-                    print(f"[cold] no RSC for 4 consecutive scrolls, stopping")
-                    break
-            if len(pending_responses) == prev_count and current_y >= scroll_height:
-                print(f"[cold] reached bottom on scroll {scroll_n + 1}, stopping")
+                pass
+            if len(pending_responses) == prev_count:
+                if current_y < scroll_height:
+                    # Still more page to scroll through — keep going without a response
+                    continue
+                print(f"[cold] no new RSC response on scroll {scroll_n + 1}, stopping")
                 break
-
-        # Re-run _EXTRACT_JS after scrolling — window.__next_f may have new RSC entries
-        post_scroll_raw = await pg.evaluate(_EXTRACT_JS)
-        new_from_post = 0
-        for item in post_scroll_raw:
-            pid = item.get("productId")
-            if pid and pid not in seen_ids:
-                seen_ids.add(pid)
-                collected.append(item)
-                new_from_post += 1
-        print(f"[cold] post-scroll __next_f: {len(post_scroll_raw)} total, {new_from_post} new unique")
-        print(f"[cold] pending_responses: {len(pending_responses)} RSC bodies ({sum(len(b) for b in pending_responses)} bytes)")
 
     except Exception as exc:
         print(f"[cold] error: {exc}")
     finally:
-        asyncio.ensure_future(ctx.close())
+        await ctx.close()
         if own_browser and _pw:
             await browser.close()
             await _pw.stop()
 
-    # Merge scroll-triggered RSC responses
-    for i, body in enumerate(pending_responses):
-        text = body.decode("utf-8", "replace")
-        has_pid = '"productId"' in text
-        items = _parse_scroll_response(body)
-        new_from_body = 0
-        for item in items:
+    # Merge all scroll-triggered RSC responses
+    for body in pending_responses:
+        for item in _parse_scroll_response(body):
             pid = item.get("productId")
             if pid not in seen_ids:
                 seen_ids.add(pid)
                 collected.append(item)
-                new_from_body += 1
-        if items or len(body) > 500:
-            print(f"[cold] scroll RSC body {i}: {len(body)}b hasPid:{has_pid} → {len(items)} products ({new_from_body} new) | {repr(text[:120])}")
 
     print(f"[cold] total collected: {len(collected)} products")
 
@@ -272,6 +188,7 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
             current_price  = float(promo) if promo else float(regular)
             original_price = float(regular) if promo else None
         promo_text = "SOLD OUT" if sold_out else (item.get("discountLabel") or None)
+        image          = item.get("image") or ""
 
         products.append({
             "name":           name,
@@ -280,7 +197,7 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
             "original_price": original_price,
             "promo":          promo_text,
             "unit":           "",
-            "image":          item.get("image") or "",
+            "image":          image,
             "barcode":        None,
             "category":       "",
             "store":          "cold",

@@ -38,7 +38,7 @@ _EXTRACT_JS = r"""() => {
         let card = null;
         for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
-            if (el.querySelector('img') && el.children.length >= 2 && el.children.length <= 40) {
+            if (el.querySelector('img') && el.children.length >= 2 && el.children.length <= 15) {
                 card = el;
                 break; // smallest matching ancestor = tightest card boundary
             }
@@ -146,7 +146,7 @@ _EXTRACT_JS = r"""() => {
 }"""
 
 
-async def search_ntuc(query: str, browser=None) -> list[dict]:
+async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
     own_browser = browser is None
     _pw = None
     if own_browser:
@@ -168,68 +168,25 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
         except Exception:
             pass
         try:
-            await page.wait_for_load_state("networkidle", timeout=2_000)
+            await page.wait_for_load_state("networkidle", timeout=1_000)
         except Exception:
             pass
-        # Adaptive scroll: 500px steps at 40ms. Waits 600ms after each full
-        # pass to give FairPrice's infinite-scroll API time to respond and
-        # render. Exits only after 3 consecutive passes with no height growth
-        # to avoid cutting off slow-loading batches.
+        # Scroll through the page so intersection observers fire and lazy img.src
+        # values get replaced with real URLs before we extract.
         await page.evaluate("""async () => {
             const delay = ms => new Promise(r => setTimeout(r, ms));
-            let lastH = 0, noGrowth = 0;
-            const deadline = Date.now() + 35000;
-            for (let pass = 0; pass < 15; pass++) {
-                if (Date.now() >= deadline) break;
-                const h = document.body.scrollHeight;
-                if (h === lastH) { if (++noGrowth >= 3) break; }
-                else { noGrowth = 0; }
-                lastH = h;
-                for (let y = 500; y <= h; y += 500) {
-                    if (Date.now() >= deadline) break;
-                    window.scrollTo(0, y);
-                    await delay(40);
-                }
-                await delay(600);
-            }
+            const h = document.body.scrollHeight;
+            for (let y = 300; y < h; y += 400) { window.scrollTo(0, y); await delay(40); }
             window.scrollTo(0, 0);
         }""")
+        await asyncio.sleep(0.3)
         title = await page.title()
         print(f"[ntuc] loaded: {title}")
-        diag = await page.evaluate("""() => {
-            const priceRe = /^\$?(\d+\.\d{2})$/;
-            let priceNodes = 0, noImgInWalk = 0;
-            const childDist = {};
-            const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
-            let node;
-            while ((node = iter.nextNode())) {
-                const txt = node.textContent.trim();
-                if (!txt.match(priceRe)) continue;
-                const price = parseFloat(txt.replace('$',''));
-                if (price < 0.10 || price > 999) continue;
-                priceNodes++;
-                let el = node.parentElement;
-                let found = false;
-                for (let i = 0; i < 14; i++) {
-                    if (!el || el === document.body) break;
-                    if (el.querySelector('img') && el.children.length >= 2) {
-                        const c = el.children.length;
-                        const k = c <= 5 ? 'c' + c : c <= 10 ? 'c6-10' : c <= 20 ? 'c11-20' : c <= 40 ? 'c21-40' : c <= 80 ? 'c41-80' : 'c80+';
-                        childDist[k] = (childDist[k] || 0) + 1;
-                        found = true; break;
-                    }
-                    el = el.parentElement;
-                }
-                if (!found) noImgInWalk++;
-            }
-            return { priceNodes, noImgInWalk, childDist };
-        }""")
-        print(f"[ntuc] diag: {diag}")
         raw = await page.evaluate(_EXTRACT_JS)
     except Exception as exc:
         print(f"[ntuc] error: {exc}")
     finally:
-        asyncio.ensure_future(ctx.close())
+        await ctx.close()
         if own_browser and _pw:
             await browser.close()
             await _pw.stop()
@@ -248,7 +205,7 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
         return n
 
     products = []
-    for item in raw:
+    for item in raw[:limit]:
         name  = clean_name((item.get("name") or "").strip())
         price = item.get("price")
         if not name or not price:
@@ -269,6 +226,4 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
         })
 
     print(f"[ntuc] parsed {len(products)} products")
-    if products:
-        print(f"[ntuc] sample names: {[p['name'] for p in products[:6]]}")
     return products

@@ -2,8 +2,8 @@
 Sheng Siong scraper.
 Tries, in order:
   1. JSON-LD structured data (schema.org Product markup)
-  2. Batched DOM sweep via a single page.evaluate() call
-All URL candidates are tried in parallel; first to land on a results page wins.
+  2. Broad DOM selector sweep with price-text matching
+  3. Raw HTML regex for price + nearby name text
 """
 import re
 import json
@@ -20,69 +20,8 @@ _UA = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
-# Single JS evaluation replaces the Python IPC loop (was ~30 round-trips per product).
-_DOM_SWEEP_JS = r"""() => {
-    const PRICE_RE = /\$?\s*(\d+\.\d{2})/;
-    const ORIG_SEL = 'del,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"]';
-    const seen = new Set();
-    const results = [];
 
-    const priceEls = document.querySelectorAll('[class*="price" i],[class*="Price"],[id*="price" i]');
-    for (const priceEl of priceEls) {
-        const priceText = (priceEl.innerText || '').trim();
-        const m = PRICE_RE.exec(priceText);
-        if (!m) continue;
-        const price = parseFloat(m[1]);
-        if (price <= 0 || price > 999) continue;
-
-        // Walk up 4 levels for name
-        let name = '';
-        let el = priceEl;
-        for (let i = 0; i < 4; i++) {
-            el = el.parentElement;
-            if (!el) break;
-            const nameEl = el.querySelector('[class*="name" i],[class*="title" i],h1,h2,h3,h4,h5,a');
-            if (nameEl) {
-                const t = (nameEl.innerText || '').trim();
-                if (t.length > 3 && t.length < 200 && !t.includes('$')) { name = t; break; }
-            }
-        }
-        if (!name) continue;
-        const key = name + '|' + price;
-        if (seen.has(key)) continue;
-        seen.add(key);
-
-        // Walk up 7 levels from price element for image (independent of name walk)
-        let img = '';
-        let elImg = priceEl;
-        for (let i = 0; i < 7; i++) {
-            elImg = elImg.parentElement;
-            if (!elImg) break;
-            const imgEl = elImg.querySelector('img');
-            if (imgEl) { img = imgEl.src || ''; break; }
-        }
-
-        // Look for original price within same ancestor used for name
-        let origPrice = null;
-        let elOrig = priceEl;
-        for (let i = 0; i < 4; i++) {
-            elOrig = elOrig.parentElement;
-            if (!elOrig) break;
-            const origEl = elOrig.querySelector(ORIG_SEL);
-            if (origEl) {
-                const om = PRICE_RE.exec((origEl.innerText || '').trim());
-                if (om && parseFloat(om[1]) > price) origPrice = parseFloat(om[1]);
-                break;
-            }
-        }
-
-        results.push({ name, price, image: img, orig_price: origPrice });
-    }
-    return results;
-}"""
-
-
-async def search_shengsiong(query: str, browser=None) -> list[dict]:
+async def search_shengsiong(query: str, limit: int = 20, browser=None) -> list[dict]:
     own_browser = browser is None
     _pw = None
     if own_browser:
@@ -93,73 +32,38 @@ async def search_shengsiong(query: str, browser=None) -> list[dict]:
         user_agent=_UA,
         viewport={"width": 1280, "height": 900},
     )
+    page = await ctx.new_page()
+    await page.route("**/*", block_resources)
     products = []
 
-    async def try_url(url):
-        pg = await ctx.new_page()
-        await pg.route("**/*", block_resources)
-        try:
-            await pg.goto(url, wait_until="domcontentloaded", timeout=12_000)
-            try:
-                await pg.wait_for_load_state("networkidle", timeout=1_500)
-            except Exception:
-                pass
-            title = await pg.title()
-            print(f"[sheng] trying: {title} | {pg.url}")
-            is_home = "online grocery" in title.lower() or title.lower().strip() in ("sheng siong", "home")
-            has_query = any(w in title.lower() for w in query.lower().split() if len(w) > 2)
-            if has_query or not is_home:
-                return pg
-            await pg.close()
-        except asyncio.CancelledError:
-            try:
-                await pg.close()
-            except Exception:
-                pass
-            raise
-        except Exception as exc:
-            print(f"[sheng] {url} failed: {exc}")
-            try:
-                await pg.close()
-            except Exception:
-                pass
-        return None
-
     try:
+        # Try direct search URLs first — avoids loading homepage then searching
         direct_candidates = [
             f"https://shengsiong.com.sg/search?q={quote_plus(query)}",
             f"https://shengsiong.com.sg/search/{quote_plus(query)}",
             f"https://shengsiong.com.sg/search/{query.replace(' ', '-')}",
         ]
-
-        # Try all URL patterns in parallel; first to land on a results page wins.
-        tasks = [asyncio.create_task(try_url(url)) for url in direct_candidates]
-        page = None
-        remaining = set(tasks)
-        while remaining and page is None:
-            done, remaining = await asyncio.wait(
-                remaining, return_when=asyncio.FIRST_COMPLETED, timeout=14.0
-            )
-            if not done:
-                break
-            for t in done:
+        landed = False
+        for url in direct_candidates:
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
                 try:
-                    result = t.result()
-                    if result is not None:
-                        page = result
-                        break
+                    await page.wait_for_load_state("networkidle", timeout=4_000)
                 except Exception:
                     pass
-        for t in remaining:
-            t.cancel()
-        if remaining:
-            await asyncio.gather(*remaining, return_exceptions=True)
+                title = await page.title()
+                print(f"[sheng] direct: {title} | {page.url}")
+                is_home = "online grocery" in title.lower() or title.lower().strip() in ("sheng siong", "home")
+                has_query = any(w in title.lower() for w in query.lower().split() if len(w) > 2)
+                if has_query or not is_home:
+                    landed = True
+                    break
+            except Exception as exc:
+                print(f"[sheng] direct URL failed: {exc}")
 
-        if not page:
+        if not landed:
             # Fallback: homepage + search box
             print("[sheng] direct URLs failed, falling back to homepage search")
-            page = await ctx.new_page()
-            await page.route("**/*", block_resources)
             await page.goto("https://shengsiong.com.sg/", wait_until="domcontentloaded", timeout=25_000)
             search_sel = (
                 "input[type='search'], input[name='q'], input[name='s'], "
@@ -201,46 +105,89 @@ async def search_shengsiong(query: str, browser=None) -> list[dict]:
 
         if products:
             print(f"[sheng] JSON-LD gave {len(products)} products")
-            return products
+            return products[:limit]
 
-        # ── 2. Batched DOM sweep (single JS evaluation) ───────────────────
-        raw_results = await page.evaluate(_DOM_SWEEP_JS)
-        print(f"[sheng] DOM batch sweep found {len(raw_results)} price nodes")
+        # ── 2. DOM sweep: every element with a $ price ───────────────────
+        price_els = await page.query_selector_all(
+            "[class*='price' i], [class*='Price' i], [id*='price' i]"
+        )
+        print(f"[sheng] price elements found: {len(price_els)}")
 
-        for item in raw_results:
-            name = (item.get("name") or "").strip()
-            price = item.get("price")
-            if not name or not price or float(price) <= 0:
+        for el in price_els[:limit * 3]:
+            try:
+                price_text = (await el.inner_text()).strip()
+                m = _PRICE_RE.search(price_text)
+                if not m:
+                    continue
+
+                name = ""
+                for _ in range(4):
+                    el = await el.evaluate_handle("el => el.parentElement")
+                    if not el:
+                        break
+                    name_el = await el.query_selector(
+                        "[class*='name' i], [class*='title' i], h1, h2, h3, h4, h5, a"
+                    )
+                    if name_el:
+                        name = (await name_el.inner_text()).strip()
+                        if name:
+                            break
+
+                img_el = None
+                for _ in range(3):
+                    el = await el.evaluate_handle("el => el.parentElement")
+                    if not el:
+                        break
+                    img_el = await el.query_selector("img")
+                    if img_el:
+                        break
+
+                img_src = await img_el.get_attribute("src") if img_el else ""
+
+                orig_price = None
+                try:
+                    orig_el = await el.query_selector(
+                        'del,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"]'
+                    )
+                    if orig_el:
+                        orig_txt = (await orig_el.inner_text()).strip()
+                        om = _PRICE_RE.search(orig_txt)
+                        if om and float(om.group(1)) > float(m.group(1)):
+                            orig_price = float(om.group(1))
+                except Exception:
+                    pass
+
+                if name and float(m.group(1)) > 0:
+                    products.append({
+                        "name":           name[:120],
+                        "brand":          "",
+                        "price":          float(m.group(1)),
+                        "original_price": orig_price,
+                        "promo":          None,
+                        "unit":           "",
+                        "image":          img_src or "",
+                        "barcode":        None,
+                        "category":       "",
+                        "store":          "sheng",
+                        "scraped_at":     datetime.utcnow(),
+                    })
+            except Exception:
                 continue
-            orig_price = item.get("orig_price")
-            products.append({
-                "name":           name[:120],
-                "brand":          "",
-                "price":          float(price),
-                "original_price": float(orig_price) if orig_price else None,
-                "promo":          None,
-                "unit":           "",
-                "image":          item.get("image") or "",
-                "barcode":        None,
-                "category":       "",
-                "store":          "sheng",
-                "scraped_at":     datetime.utcnow(),
-            })
 
     except Exception as exc:
         print(f"[sheng] error: {exc}")
     finally:
-        asyncio.ensure_future(ctx.close())
+        await ctx.close()
         if own_browser and _pw:
             await browser.close()
             await _pw.stop()
 
     if products:
-        print(f"[sheng] gave {len(products)} products")
+        print(f"[sheng] DOM sweep gave {len(products)} products")
     else:
         print("[sheng] no products found — site structure needs manual inspection")
 
-    return products
+    return products[:limit]
 
 
 def _from_json_ld(item: dict) -> dict | None:

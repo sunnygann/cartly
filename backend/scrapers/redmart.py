@@ -6,11 +6,10 @@ Use the catalog query-param URL instead, which properly filters by term.
 Results are post-filtered to keep only products whose names contain at
 least one meaningful word from the search query.
 """
-import asyncio
 from datetime import datetime
 from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
-from ._base import _EXTRACT_JS, _UA, block_resources, _is_relevant
+from ._base import _EXTRACT_JS, _UA, block_resources
 
 # Proper query-param URL loads real search results; hash URL is a fallback only
 _URLS = [
@@ -19,8 +18,22 @@ _URLS = [
     "https://redmart.lazada.sg/search/#q={}&from=input",
 ]
 
+_SKIP_WORDS = {
+    "the", "and", "for", "with", "per", "from", "each", "in", "of",
+    "a", "an", "to", "at", "is", "it",
+}
 
-async def search_redmart(query: str, browser=None) -> list[dict]:
+
+def _is_relevant(name: str, query: str) -> bool:
+    """Return True if the product name contains at least one query word."""
+    name_l  = name.lower()
+    q_words = [w for w in query.lower().split() if len(w) > 2 and w not in _SKIP_WORDS]
+    if not q_words:
+        return True
+    return any(w in name_l for w in q_words)
+
+
+async def search_redmart(query: str, limit: int = 20, browser=None) -> list[dict]:
     own_browser = browser is None
     _pw = None
     if own_browser:
@@ -45,7 +58,7 @@ async def search_redmart(query: str, browser=None) -> list[dict]:
                 try:
                     await page.wait_for_selector(
                         "[class*='product' i], [class*='item' i], [data-sku]",
-                        timeout=4_000,
+                        timeout=10_000,
                     )
                 except Exception:
                     pass
@@ -78,13 +91,13 @@ async def search_redmart(query: str, browser=None) -> list[dict]:
     except Exception as exc:
         print(f"[red] error: {exc}")
     finally:
-        asyncio.ensure_future(ctx.close())
+        await ctx.close()
         if own_browser and _pw:
             await browser.close()
             await _pw.stop()
 
     products = []
-    for item in raw:
+    for item in raw[:limit]:
         name  = (item.get("name") or "").strip()
         price = item.get("price")
         if not name or not price:
