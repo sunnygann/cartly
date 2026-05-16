@@ -1,0 +1,20 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inject version
+        run: |
+          VERSION="$(date +'%Y.%m.%d').$(git rev-parse --short HEAD)"
+          sed -i "s/%%VERSION%%/${VERSION}/g" index.html
+          echo "Version: ${VERSION}"
+
+      - name: Deploy to Surge
+        run: npx surge . cartly.surge.sh --token ${{ secrets.SURGE_TOKEN }}
