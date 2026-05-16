@@ -14,7 +14,7 @@ from playwright.async_api import async_playwright
 from ._base import _UA, block_resources
 
 _URL = "https://www.coldstorage.com.sg/search?q={}"
-_MAX_SCROLLS = 20
+_MAX_SCROLLS = 40
 
 _EXTRACT_JS = r"""() => {
     for (const entry of (window.__next_f || [])) {
@@ -88,7 +88,7 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
     rsc_event = asyncio.Event()
 
     async def handle_response(resp):
-        if "coldstorage.com.sg/search" not in resp.url or resp.status != 200:
+        if "coldstorage.com.sg" not in resp.url or resp.status != 200:
             return
         ct = resp.headers.get("content-type", "")
         if not any(x in ct for x in ("x-component", "text/plain", "application/json")):
@@ -131,7 +131,8 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
         print(f"[cold] initial RSC: {len(initial_raw)} items")
 
         # Source 2: scroll in 800px increments to trigger lazy-loading.
-        # Stop early after 3 consecutive scrolls with no new RSC response.
+        # Stop after 8 consecutive scrolls with no RSC response (allows
+        # for slow batches and gaps between the ~9 pages of 250 results).
         current_y = 0
         scroll_height = await pg.evaluate("() => document.body.scrollHeight")
         consecutive_no_rsc = 0
@@ -141,13 +142,13 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
             current_y = min(current_y + 800, scroll_height)
             await pg.evaluate(f"window.scrollTo(0, {current_y})")
             try:
-                await asyncio.wait_for(rsc_event.wait(), timeout=1.0)
+                await asyncio.wait_for(rsc_event.wait(), timeout=2.5)
                 scroll_height = await pg.evaluate("() => document.body.scrollHeight")
                 consecutive_no_rsc = 0
             except asyncio.TimeoutError:
                 consecutive_no_rsc += 1
-                if consecutive_no_rsc >= 3:
-                    print(f"[cold] no new RSC for 3 consecutive scrolls, stopping")
+                if consecutive_no_rsc >= 8:
+                    print(f"[cold] no new RSC for 8 consecutive scrolls, stopping")
                     break
             if len(pending_responses) == prev_count and current_y >= scroll_height:
                 print(f"[cold] reached page bottom on scroll {scroll_n + 1}, stopping")
