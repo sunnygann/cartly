@@ -58,3 +58,14 @@ class ScrapedQuery(Base):
     id         = Column(Integer, primary_key=True)
     query      = Column(String, nullable=False, index=True)
     scraped_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class EmailSignup(Base):
+    __tablename__ = "email_signups"
+    id          = Column(Integer, primary_key=True)
+    email       = Column(String, nullable=False)
+    signed_up_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("uix_email_signups_email", "email", unique=True),
+    )

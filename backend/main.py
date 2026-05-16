@@ -8,12 +8,13 @@ from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database import get_db, init_db, AsyncSessionLocal
-from models import Store, Product, Price, ScrapedQuery
+from models import Store, Product, Price, ScrapedQuery, EmailSignup
 from scrapers import SCRAPERS
 from browser import get_browser, stop_browser
 
@@ -285,3 +286,21 @@ async def list_stores(db: AsyncSession = Depends(get_db)):
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "time": datetime.utcnow().isoformat()}
+
+
+class _AlertSignupBody(BaseModel):
+    email: str
+
+
+@app.post("/api/alerts/signup")
+async def alert_signup(body: _AlertSignupBody, db: AsyncSession = Depends(get_db)):
+    email = body.email.strip().lower()
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    await db.execute(
+        pg_insert(EmailSignup.__table__)
+        .values(email=email, signed_up_at=datetime.utcnow())
+        .on_conflict_do_nothing()
+    )
+    await db.commit()
+    return {"ok": True}

@@ -66,7 +66,37 @@
       border-bottom: 1px solid var(--border);
     }
     .logo { font-size: 1.4rem; font-weight: 800; color: var(--text); text-decoration: none; flex-shrink: 0; }
-    .logo span { color: var(--accent); }
+    /* "art" and "ly" collapse first, then C rotates in on hover.
+       Reverses on unhover: C rotates back, then text expands. */
+    .logo-c {
+      display: inline-block; vertical-align: top;
+      transition: transform 0.35s cubic-bezier(0.34, 1.2, 0.64, 1) 0s;
+    }
+    .logo-art {
+      display: inline-block; vertical-align: top;
+      overflow: hidden; white-space: nowrap;
+      max-width: 60px;
+      transition: max-width 0.28s ease 0.28s, opacity 0.22s ease 0.28s;
+    }
+    .logo-ly {
+      display: inline-block; vertical-align: top;
+      color: var(--accent);
+      overflow: hidden; white-space: nowrap;
+      max-width: 40px;
+      transition: max-width 0.28s ease 0.28s, opacity 0.22s ease 0.28s;
+    }
+    .logo:hover .logo-c,
+    .logo.logo-active .logo-c {
+      transform: rotate(-90deg);
+      transition: transform 0.4s cubic-bezier(0.34, 1.2, 0.64, 1) 0.22s;
+    }
+    .logo:hover .logo-art,
+    .logo:hover .logo-ly,
+    .logo.logo-active .logo-art,
+    .logo.logo-active .logo-ly {
+      max-width: 0; opacity: 0;
+      transition: max-width 0.22s ease 0s, opacity 0.18s ease 0s;
+    }
     .nav-links { display: flex; gap: 1rem; }
     .nav-links a {
       color: var(--muted); text-decoration: none; font-size: 0.9rem; transition: color .2s;
@@ -378,6 +408,55 @@
     footer a { color: var(--muted); text-decoration: none; }
     footer a:hover { color: var(--text); }
 
+    /* ── INFO MODALS ── */
+    .info-overlay {
+      display: none; position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.45); backdrop-filter: blur(4px);
+      align-items: flex-end; justify-content: center;
+    }
+    .info-overlay.open { display: flex; }
+    .info-sheet {
+      background: var(--mid); border-radius: 1.2rem 1.2rem 0 0;
+      width: 100%; max-width: 680px; max-height: 80vh;
+      overflow-y: auto; padding: 2rem 1.75rem 3rem;
+      animation: sheet-up .25s ease;
+    }
+    @keyframes sheet-up {
+      from { transform: translateY(40px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+    .info-sheet-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1.4rem;
+    }
+    .info-sheet-header h2 { font-size: 1.15rem; font-weight: 700; }
+    .info-close {
+      background: var(--card); border: none; border-radius: 50%;
+      width: 30px; height: 30px; cursor: pointer;
+      font-size: 1rem; color: var(--muted); display: flex;
+      align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .info-close:hover { color: var(--text); }
+    .info-sheet p { color: var(--muted); font-size: .9rem; line-height: 1.65; margin-bottom: .85rem; }
+    .info-sheet h3 { font-size: .95rem; font-weight: 700; margin: 1.2rem 0 .4rem; color: var(--text); }
+    .info-sheet code {
+      font-family: monospace; font-size: .82rem;
+      background: var(--card); border-radius: .3rem;
+      padding: .15rem .4rem; color: var(--accent);
+    }
+    .info-sheet pre {
+      background: var(--card); border-radius: .6rem;
+      padding: .85rem 1rem; font-size: .78rem; font-family: monospace;
+      overflow-x: auto; color: var(--text); margin-bottom: .85rem; line-height: 1.55;
+    }
+    .info-sheet ul { padding-left: 1.2rem; color: var(--muted); font-size: .9rem; line-height: 1.75; }
+    .blog-post {
+      border-top: 1px solid var(--border); padding: 1rem 0;
+    }
+    .blog-post:first-of-type { border-top: none; padding-top: 0; }
+    .blog-post h3 { margin: 0 0 .25rem; font-size: .95rem; color: var(--text); }
+    .blog-post span { font-size: .78rem; color: var(--muted); }
+
     /* ── TOAST ── */
     #toast {
       position: fixed;
@@ -504,7 +583,7 @@
 
 <!-- ── NAV ── -->
 <nav>
-  <a href="#" class="logo">Cart<span>ly</span></a>
+  <a href="#" class="logo" id="logo-link"><span class="logo-c">C</span><span class="logo-art">art</span><span class="logo-ly">ly</span></a>
   <div class="nav-links">
     <a href="#basket-section">My Basket</a>
     <a href="#how-section">How it works</a>
@@ -538,7 +617,7 @@
     <button class="search-btn" onclick="doSearch()">Compare</button>
   </div>
 
-  <label class="fresh-toggle" id="fresh-toggle" style="display:none">
+  <label class="fresh-toggle" id="fresh-toggle">
     <input type="checkbox" id="fresh-check">
     <span>rescrape (dev)</span>
   </label>
@@ -662,10 +741,105 @@
 <!-- ── FOOTER ── -->
 <footer>
   <p style="margin-bottom:.4rem">
-    <a href="#">About</a> · <a href="#">Blog</a> · <a href="#">API</a> · <a href="#">Privacy</a> · <a href="mailto:sunnygann7@gmail.com">Contact</a>
+    <a href="#" onclick="openModal('about');return false">About</a> · <a href="#" onclick="openModal('blog');return false">Blog</a> · <a href="#" onclick="openModal('api');return false">API</a> · <a href="#" onclick="openModal('privacy');return false">Privacy</a> · <a href="mailto:sunnygann7@gmail.com">Contact</a>
   </p>
   <p>© 2026 Cartly · Prices updated every 6 hours · Not affiliated with any supermarket chain</p>
 </footer>
+
+<!-- ── INFO MODALS ── -->
+<div class="info-overlay" id="modal-about" onclick="closeModal('about')">
+  <div class="info-sheet" onclick="event.stopPropagation()">
+    <div class="info-sheet-header">
+      <h2>About Cartly</h2>
+      <button class="info-close" onclick="closeModal('about')">✕</button>
+    </div>
+    <p>Cartly is a free grocery price comparison tool built for Singapore shoppers. Search any product and instantly see prices across the major supermarkets — so you always know where to get the best deal.</p>
+    <h3>Stores covered</h3>
+    <ul>
+      <li>NTUC FairPrice</li>
+      <li>Cold Storage</li>
+      <li>Sheng Siong</li>
+      <li>RedMart (Lazada)</li>
+      <li>Don Don Donki</li>
+    </ul>
+    <h3>How it works</h3>
+    <p>When you search, Cartly scrapes live prices from each store in parallel and streams results back as they arrive. Results are cached for 6 hours — so repeat searches are instant. Use the basket builder to find the cheapest split across stores for your weekly shop.</p>
+    <h3>About the project</h3>
+    <p>Cartly is an independent project and is not affiliated with, endorsed by, or connected to any supermarket chain. Prices are sourced from publicly accessible store websites and may occasionally differ from in-store prices.</p>
+    <p>Built in Singapore · © 2026 Cartly</p>
+  </div>
+</div>
+
+<div class="info-overlay" id="modal-blog" onclick="closeModal('blog')">
+  <div class="info-sheet" onclick="event.stopPropagation()">
+    <div class="info-sheet-header">
+      <h2>Blog</h2>
+      <button class="info-close" onclick="closeModal('blog')">✕</button>
+    </div>
+    <div class="blog-post">
+      <h3>Which supermarket is cheapest in Singapore?</h3>
+      <span>May 2026 · 4 min read</span>
+      <p>We ran 50 common grocery items across NTUC FairPrice, Cold Storage, Sheng Siong, RedMart and Don Don Donki to find out where your dollar stretches furthest — and the results might surprise you.</p>
+    </div>
+    <div class="blog-post">
+      <h3>How Cartly scrapes prices in real time</h3>
+      <span>May 2026 · 3 min read</span>
+      <p>Behind every search is a fleet of parallel scrapers hitting each store simultaneously. Here's how we keep prices fresh, handle sold-out items, and match the same product across stores with different names.</p>
+    </div>
+    <div class="blog-post">
+      <h3>Introducing Cartly</h3>
+      <span>May 2026 · 2 min read</span>
+      <p>Grocery prices in Singapore vary wildly between stores for the exact same product. Cartly was built to make that comparison instant — no more tab-switching or mental arithmetic at the supermarket.</p>
+    </div>
+    <p style="margin-top:1.2rem">More posts coming soon.</p>
+  </div>
+</div>
+
+<div class="info-overlay" id="modal-api" onclick="closeModal('api')">
+  <div class="info-sheet" onclick="event.stopPropagation()">
+    <div class="info-sheet-header">
+      <h2>API</h2>
+      <button class="info-close" onclick="closeModal('api')">✕</button>
+    </div>
+    <p>Cartly's backend is publicly accessible. All endpoints are read-only. Base URL:</p>
+    <pre>https://cartly-production-9eb2.up.railway.app</pre>
+    <h3>Search — SSE stream</h3>
+    <pre>GET /api/search?q=&lt;query&gt;</pre>
+    <p>Returns a Server-Sent Events stream. Each event is a JSON object with <code>type</code> of <code>"results"</code> (array of prices) or <code>"done"</code>. Cache TTL is 6 hours. Add <code>&fresh=1</code> to force a live rescrape.</p>
+    <h3>Price history</h3>
+    <pre>GET /api/history/&lt;product_id&gt;?days=30</pre>
+    <p>Returns price history for a product across all stores for the past N days (default 30).</p>
+    <h3>Stores</h3>
+    <pre>GET /api/stores</pre>
+    <p>Returns the list of supported stores with their keys, names, and brand colours.</p>
+    <h3>Health</h3>
+    <pre>GET /api/health</pre>
+    <p>Returns <code>{"status":"ok"}</code>. Use this to check if the backend is up.</p>
+    <p>The API is provided as-is with no SLA. Please be respectful with request volume.</p>
+  </div>
+</div>
+
+<div class="info-overlay" id="modal-privacy" onclick="closeModal('privacy')">
+  <div class="info-sheet" onclick="event.stopPropagation()">
+    <div class="info-sheet-header">
+      <h2>Privacy Policy</h2>
+      <button class="info-close" onclick="closeModal('privacy')">✕</button>
+    </div>
+    <p>Last updated: May 2026</p>
+    <h3>What we collect</h3>
+    <p>Cartly does not require an account and does not collect any personal information. Search queries are stored server-side solely to cache results and reduce repeat scraping — they are not linked to any individual user.</p>
+    <h3>Cookies &amp; tracking</h3>
+    <p>Cartly does not use cookies, analytics trackers, or advertising pixels. No third-party tracking scripts are loaded.</p>
+    <h3>Price data</h3>
+    <p>All prices are scraped from publicly accessible supermarket websites. Cartly does not store payment information, user accounts, or purchase history of any kind.</p>
+    <h3>Basket data</h3>
+    <p>Your basket is stored in memory only and is cleared when you close or refresh the page. It is never sent to our servers.</p>
+    <h3>Price alerts</h3>
+    <p>If you sign up for price alerts, your email address is stored solely to send you the requested notification and for no other purpose.</p>
+    <h3>Contact</h3>
+    <p>Questions about privacy? Email <a href="mailto:sunnygann7@gmail.com" style="color:var(--accent)">sunnygann7@gmail.com</a>.</p>
+  </div>
+</div>
 
 <!-- ── TOAST ── -->
 <div id="toast">✓ Added to basket</div>
@@ -795,6 +969,30 @@ const _addBtnData = new Map();
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+// ── LOGO ANIMATION ── //
+document.getElementById('logo-link').addEventListener('click', function(e) {
+  e.preventDefault();
+  this.classList.add('logo-active');
+  setTimeout(() => this.classList.remove('logo-active'), 1800);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+// ── INFO MODALS ── //
+function openModal(id) {
+  document.getElementById('modal-' + id).classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal(id) {
+  document.getElementById('modal-' + id).classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    ['about','blog','api','privacy'].forEach(closeModal);
+    document.body.style.overflow = '';
+  }
+});
 
 // ── NAV HAMBURGER ── //
 function toggleNav() {
@@ -1411,11 +1609,29 @@ function showToast(msg) {
 }
 
 // ── ALERT SIGNUP ── //
-function signupAlert() {
-  const email = document.getElementById('alert-email').value;
+async function signupAlert() {
+  const emailEl = document.getElementById('alert-email');
+  const btn = document.querySelector('.alert-form button');
+  const email = emailEl.value.trim();
   if (!email.includes('@')) { alert('Please enter a valid email.'); return; }
-  showToast('🔔 Alerts activated for ' + email);
-  document.getElementById('alert-email').value = '';
+  btn.disabled = true;
+  btn.textContent = 'Signing up…';
+  try {
+    const res = await fetch(`${API}/api/alerts/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) throw new Error();
+    emailEl.value = '';
+    btn.textContent = '✓ You\'re on the list';
+    showToast('🔔 You\'re on the list!');
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Get Alerts'; }, 4000);
+  } catch {
+    btn.disabled = false;
+    btn.textContent = 'Get Alerts';
+    showToast('Something went wrong — please try again.');
+  }
 }
 
 // ── ENTER key to search ── //
