@@ -3,14 +3,6 @@ import asyncio
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-_BLOCKED_TYPES = {"image", "font", "media", "stylesheet"}
-
-async def block_resources(route):
-    if route.request.resource_type in _BLOCKED_TYPES:
-        await route.abort()
-    else:
-        await route.continue_()
-
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -71,13 +63,7 @@ _EXTRACT_JS = """() => {
                 }
                 if (!img) {
                     const imgEl = el.querySelector('img');
-                    if (imgEl) {
-                        let src = '';
-                        if (imgEl.srcset) src = imgEl.srcset.split(',')[0].trim().split(/\s+/)[0];
-                        if (!src && imgEl.dataset.src && !imgEl.dataset.src.startsWith('data:')) src = imgEl.dataset.src;
-                        if (!src && imgEl.src && !imgEl.src.startsWith('data:')) src = imgEl.src;
-                        img = src;
-                    }
+                    if (imgEl) img = imgEl.src || imgEl.dataset.src || '';
                 }
                 if (name && img) foundCard = true;
             }

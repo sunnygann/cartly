@@ -4,7 +4,6 @@ NTUC FairPrice scraper.
 import asyncio
 from datetime import datetime
 from playwright.async_api import async_playwright
-from ._base import block_resources
 
 _SEARCH_URL = "https://www.fairprice.com.sg/search?query={}"
 _UA = (
@@ -17,11 +16,26 @@ _EXTRACT_JS = r"""() => {
     const priceRe = /^\$?(\d+\.\d{2})$/;
     const strikeSel = 'del,s,strike,[class*="was"],[class*="original"],[class*="before"],[class*="old-price"],[class*="compare-price"]';
     const promoJunk = /add\s+to\s+cart|\d+\.\d+\s*\(\d+\)/i;
-    const promoRe = /\d\+\d\s*free|\d-for-\d|\bbuy\s+\d+\s+get\s+\d+|(?:any\s+)?\d+\s+(?:for|@|at)\s+\$[\d.]+/i;
 
-    // STEP 1: find product cards using structural signals only.
-    // Do NOT use a global promo list to find cards — that causes promos from
-    // one product to attract ancestors that span multiple products.
+    // STEP 1: collect ALL promo texts from the page
+    const allPromos = [];
+    for (const el of document.querySelectorAll('[data-testid="promo-label"]')) {
+        const t = el.textContent.trim();
+        if (t.length > 3 && t.length < 80 && !promoJunk.test(t) && !allPromos.includes(t)) {
+            allPromos.push(t);
+        }
+    }
+    const promoRe = /\d\+\d\s*free|\d-for-\d|\bbuy\s+\d+\s+get\s+\d+|(?:any\s+)?\d+\s+(?:for|@|at)\s+\$[\d.]+/i;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let tn;
+    while (tn = walker.nextNode()) {
+        const t = tn.textContent.trim();
+        if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t) && !allPromos.includes(t)) {
+            allPromos.push(t);
+        }
+    }
+
+    // STEP 2: find product cards (promo‑first, then image fallback)
     const cards = new Map();
 
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
@@ -33,17 +47,34 @@ _EXTRACT_JS = r"""() => {
         const price = parseFloat(m[1]);
         if (price < 0.10 || price > 999) continue;
 
-        // Walk up to find the smallest ancestor that looks like a product card
         let el = node.parentElement;
         let card = null;
+        let promo = null;
+
         for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
-            if (el.querySelector('img') && el.children.length >= 2 && el.children.length <= 15) {
-                card = el;
-                break; // smallest matching ancestor = tightest card boundary
+
+            if (!promo) {
+                const ancestorText = el.textContent;
+                for (const p of allPromos) {
+                    if (ancestorText.includes(p)) {
+                        promo = p;
+                        break;
+                    }
+                }
+                if (promo) {
+                    card = el;
+                    break;
+                }
             }
+
+            if (!card && el.querySelector('img') && el.children.length >= 2) {
+                card = el;
+            }
+
             el = el.parentElement;
         }
+
         if (!card) continue;
 
         let insideStrike = false;
@@ -53,30 +84,16 @@ _EXTRACT_JS = r"""() => {
             p = p.parentElement;
         }
 
-        if (!cards.has(card)) cards.set(card, { prices: [] });
+        if (!cards.has(card)) cards.set(card, { prices: [], promo: promo });
         cards.get(card).prices.push({ node, price, insideStrike });
     }
 
-    // STEP 2: build results — find promo WITHIN each card's own subtree
+    // STEP 3: build results
     const results = [];
     for (const [card, data] of cards.entries()) {
-        const { prices } = data;
+        const { prices, promo } = data;
         if (prices.length === 0) continue;
 
-        // Promo: check data-testid label first, then text pattern — scoped to card
-        let promo = null;
-        for (const el of card.querySelectorAll('[data-testid="promo-label"]')) {
-            const t = el.textContent.trim();
-            if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) { promo = t; break; }
-        }
-        if (!promo) {
-            const tw = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
-            let tn;
-            while ((tn = tw.nextNode())) {
-                const t = tn.textContent.trim();
-                if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promo = t; break; }
-            }
-        }
         let salePrice = null, originalPrice = null;
         const nonStrikePrices = prices.filter(p => !p.insideStrike).map(p => p.price);
         const strikePrices = prices.filter(p => p.insideStrike).map(p => p.price);
@@ -110,24 +127,11 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // --- UNIT EXTRACTION (size often in a separate span on NTUC) ---
-        let unit = '';
-        const unitRe = /^\d+(?:\.\d+)?\s*(?:ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|caps?|sachets?)\s*$/i;
-        for (const el of card.querySelectorAll('span, p, div')) {
-            if (el.children.length > 0) continue;
-            const t = el.textContent.trim();
-            if (unitRe.test(t)) { unit = t; break; }
-        }
-
         // --- IMAGE EXTRACTION (card-scoped, skip campaign/label images) ---
         let image = '';
         const skipImgRe = /campaign|label|banner|sticker|badge|promo|offer|deal/i;
         for (const img of card.querySelectorAll('img')) {
-            // Next.js lazy images: srcset always has real URLs even when src is a placeholder
-            let src = '';
-            if (img.srcset) src = img.srcset.split(',')[0].trim().split(/\s+/)[0];
-            if (!src && img.dataset.src && !img.dataset.src.startsWith('data:')) src = img.dataset.src;
-            if (!src && img.src && !img.src.startsWith('data:')) src = img.src;
+            const src = img.src || img.dataset.src || '';
             if (!src || skipImgRe.test(src)) continue;
             image = src;
             break;
@@ -137,7 +141,6 @@ _EXTRACT_JS = r"""() => {
             name,
             price: salePrice,
             image,
-            unit,
             original_price: originalPrice,
             promo: promo
         });
@@ -146,20 +149,19 @@ _EXTRACT_JS = r"""() => {
 }"""
 
 
-async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
-    own_browser = browser is None
-    _pw = None
-    if own_browser:
-        _pw = await async_playwright().start()
-        browser = await _pw.chromium.launch(headless=True)
+async def search_ntuc(query: str, limit: int = 20) -> list[dict]:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        ctx = await browser.new_context(user_agent=_UA)
+        page = await ctx.new_page()
 
-    ctx = await browser.new_context(user_agent=_UA)
-    page = await ctx.new_page()
-    await page.route("**/*", block_resources)
-    raw = []
+        try:
+            await page.goto(_SEARCH_URL.format(query), wait_until="load", timeout=30_000)
+        except Exception as exc:
+            print(f"[ntuc] page load error: {exc}")
+            await browser.close()
+            return []
 
-    try:
-        await page.goto(_SEARCH_URL.format(query), wait_until="domcontentloaded", timeout=30_000)
         try:
             await page.wait_for_function(
                 "() => document.body.innerText.includes('$')",
@@ -167,29 +169,13 @@ async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
             )
         except Exception:
             pass
-        try:
-            await page.wait_for_load_state("networkidle", timeout=1_000)
-        except Exception:
-            pass
-        # Scroll through the page so intersection observers fire and lazy img.src
-        # values get replaced with real URLs before we extract.
-        await page.evaluate("""async () => {
-            const delay = ms => new Promise(r => setTimeout(r, ms));
-            const h = document.body.scrollHeight;
-            for (let y = 300; y < h; y += 400) { window.scrollTo(0, y); await delay(40); }
-            window.scrollTo(0, 0);
-        }""")
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(2)
+
         title = await page.title()
         print(f"[ntuc] loaded: {title}")
+
         raw = await page.evaluate(_EXTRACT_JS)
-    except Exception as exc:
-        print(f"[ntuc] error: {exc}")
-    finally:
-        await ctx.close()
-        if own_browser and _pw:
-            await browser.close()
-            await _pw.stop()
+        await browser.close()
 
     print(f"[ntuc] DOM extracted {len(raw)} price nodes")
 
@@ -217,7 +203,7 @@ async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
             "price":          float(price),
             "original_price": float(orig) if orig else None,
             "promo":          item.get("promo") or None,
-            "unit":           (item.get("unit") or "").strip(),
+            "unit":           "",
             "image":          item.get("image", ""),
             "barcode":        None,
             "category":       "",

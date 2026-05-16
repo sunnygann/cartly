@@ -5,16 +5,14 @@ Uses two sources:
   2. RSC fetch responses during scroll — additional items (including sold-out) loaded lazily.
 Products deduplicated by productId. inventoryStatus field used for sold-out detection.
 SSL certificate is expired — we pass ignore_https_errors=True.
-Scrolls up to MAX_SCROLLS times, stopping early when no new RSC response arrives.
 """
 import asyncio
 import json
 from datetime import datetime
 from playwright.async_api import async_playwright
-from ._base import _UA, block_resources
+from ._base import _UA
 
 _URL = "https://www.coldstorage.com.sg/search?q={}"
-_MAX_SCROLLS = 20
 
 _EXTRACT_JS = r"""() => {
     for (const entry of (window.__next_f || [])) {
@@ -66,57 +64,43 @@ def _parse_scroll_response(body: bytes) -> list[dict]:
     return results
 
 
-async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[dict]:
+async def search_coldstorage(query: str) -> list[dict]:
     collected: list[dict] = []
     seen_ids: set = set()
     pending_responses: list = []
 
-    own_browser = browser is None
-    _pw = None
-    if own_browser:
-        _pw = await async_playwright().start()
-        browser = await _pw.chromium.launch(headless=True)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        ctx = await browser.new_context(
+            user_agent=_UA,
+            ignore_https_errors=True,
+            viewport={"width": 1280, "height": 900},
+        )
+        pg = await ctx.new_page()
 
-    ctx = await browser.new_context(
-        user_agent=_UA,
-        ignore_https_errors=True,
-        viewport={"width": 1280, "height": 900},
-    )
-    pg = await ctx.new_page()
-    await pg.route("**/*", block_resources)
+        async def handle_response(resp):
+            if "coldstorage.com.sg/search" not in resp.url or resp.status != 200:
+                return
+            ct = resp.headers.get("content-type", "")
+            if not any(x in ct for x in ("x-component", "text/plain", "application/json")):
+                return
+            try:
+                body = await resp.body()
+                pending_responses.append(body)
+            except Exception:
+                pass
 
-    rsc_event = asyncio.Event()
+        pg.on("response", handle_response)
 
-    async def handle_response(resp):
-        if "coldstorage.com.sg/search" not in resp.url or resp.status != 200:
-            return
-        ct = resp.headers.get("content-type", "")
-        if not any(x in ct for x in ("x-component", "text/plain", "application/json")):
-            return
-        try:
-            body = await resp.body()
-            pending_responses.append(body)
-            rsc_event.set()
-        except Exception:
-            pass
-
-    pg.on("response", handle_response)
-
-    try:
         url = _URL.format(query)
-        await pg.goto(url, wait_until="domcontentloaded", timeout=28_000)
-
-        # Wait for initial RSC stream to deliver products
         try:
-            await pg.wait_for_function(
-                """() => (window.__next_f || []).some(
-                    e => Array.isArray(e) && typeof e[1] === 'string'
-                      && e[1].includes('"initialProducts"')
-                )""",
-                timeout=10_000,
-            )
-        except Exception:
-            pass
+            await pg.goto(url, wait_until="load", timeout=28_000)
+            await asyncio.sleep(2)
+        except Exception as exc:
+            print(f"[cold] page load error: {exc}")
+            await ctx.close()
+            await browser.close()
+            return []
 
         title = await pg.title()
         print(f"[cold] loaded: {title} | {pg.url}")
@@ -130,36 +114,14 @@ async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[
                 collected.append(item)
         print(f"[cold] initial RSC: {len(initial_raw)} items")
 
-        # Source 2: scroll in 800px increments to trigger lazy-loading
-        current_y = 0
-        scroll_height = await pg.evaluate("() => document.body.scrollHeight")
-        for scroll_n in range(_MAX_SCROLLS):
-            rsc_event.clear()
-            prev_count = len(pending_responses)
-            current_y = min(current_y + 800, scroll_height)
-            await pg.evaluate(f"window.scrollTo(0, {current_y})")
-            try:
-                await asyncio.wait_for(rsc_event.wait(), timeout=3.0)
-                # Page grew — update scroll height
-                scroll_height = await pg.evaluate("() => document.body.scrollHeight")
-            except asyncio.TimeoutError:
-                pass
-            if len(pending_responses) == prev_count:
-                if current_y < scroll_height:
-                    # Still more page to scroll through — keep going without a response
-                    continue
-                print(f"[cold] no new RSC response on scroll {scroll_n + 1}, stopping")
-                break
+        # Scroll to trigger lazy-loading of additional items (sold-out etc.)
+        await pg.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await asyncio.sleep(3)
 
-    except Exception as exc:
-        print(f"[cold] error: {exc}")
-    finally:
         await ctx.close()
-        if own_browser and _pw:
-            await browser.close()
-            await _pw.stop()
+        await browser.close()
 
-    # Merge all scroll-triggered RSC responses
+    # Source 2: scroll-triggered RSC fetch responses
     for body in pending_responses:
         for item in _parse_scroll_response(body):
             pid = item.get("productId")
@@ -181,13 +143,9 @@ async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[
         inventory = (item.get("inventoryStatus") or "").lower()
         sold_out  = bool(inventory) and inventory not in ("in stock", "available")
 
-        if sold_out:
-            current_price  = float(regular)
-            original_price = None
-        else:
-            current_price  = float(promo) if promo else float(regular)
-            original_price = float(regular) if promo else None
-        promo_text = "SOLD OUT" if sold_out else (item.get("discountLabel") or None)
+        current_price  = float(promo)   if promo else float(regular)
+        original_price = float(regular) if promo else None
+        promo_text     = "SOLD OUT" if sold_out else (item.get("discountLabel") or None)
         image          = item.get("image") or ""
 
         products.append({

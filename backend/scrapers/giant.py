@@ -12,14 +12,9 @@ _ALGOLIA_APP_ID = "PFCHI1YM66"
 _ALGOLIA_API_KEY = "d0c09a40111717aec861992cf8497e71"
 _ALGOLIA_INDEX   = "giant_product_live"
 _ALGOLIA_HOST    = f"{_ALGOLIA_APP_ID}-dsn.algolia.net"
-_cached_ip: str | None = None
 
 async def _resolve_via_doh(hostname: str) -> str | None:
     """Resolve via Cloudflare DNS-over-HTTPS (port 443, never blocked)."""
-    global _cached_ip
-    if _cached_ip:
-        print(f"[giant] using cached IP {_cached_ip}")
-        return _cached_ip
     try:
         async with httpx.AsyncClient(timeout=8) as client:
             resp = await client.get(
@@ -31,14 +26,13 @@ async def _resolve_via_doh(hostname: str) -> str | None:
                 if answer.get("type") == 1:
                     ip = answer["data"]
                     print(f"[giant] DoH resolved {hostname} -> {ip}")
-                    _cached_ip = ip
                     return ip
     except Exception as exc:
         print(f"[giant] DoH failed: {exc}")
     return None
 
 
-async def search_giant(query: str, limit: int = 20, browser=None) -> list[dict]:
+async def search_giant(query: str, limit: int = 20) -> list[dict]:
     ip = await _resolve_via_doh(_ALGOLIA_HOST)
 
     if not ip:

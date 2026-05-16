@@ -544,13 +544,13 @@
   </label>
 
   <div class="popular-tags">
-    <span class="tag" onclick="quickSearch('Royal Umbrella Rice')">Royal Umbrella Rice</span>
-    <span class="tag" onclick="quickSearch('Meiji Protein Milk')">Meiji Protein Milk</span>
+    <span class="tag" onclick="quickSearch('Royal Umbrella Thai Hom Mali Rice')">Royal Umbrella Thai Hom Mali Rice</span>
+    <span class="tag" onclick="quickSearch('Meiji Low Fat High Protein Milk')">Meiji Low Fat High Protein Milk</span>
     <span class="tag" onclick="quickSearch('Seng Choon Farm Fresh Eggs')">Seng Choon Farm Fresh Eggs</span>
-    <span class="tag" onclick="quickSearch('Facial Tissue')">Facial Tissue</span>
+    <span class="tag" onclick="quickSearch('Myojo Chicken Curry Instant Noodles')">Myojo Chicken Curry Instant Noodles</span>
     <div style="flex-basis:100%;height:0"></div>
     <span class="tag" onclick="quickSearch('Gardenia White Bread')">Gardenia White Bread</span>
-    <span class="tag" onclick="quickSearch('100 Plus Isotonic Drink')">100 Plus Isotonic Drink</span>
+    <span class="tag" onclick="quickSearch('100PLUS Isotonic Drink')">100PLUS Isotonic Drink</span>
   </div>
 </section>
 
@@ -914,10 +914,9 @@ function extractMeta(name) {
   return { clean: clean || name, sub: qtys.join(' · ') };
 }
 
-function groupByProduct(results, storeVariantCount = {}) {
+function groupByProduct(results) {
   const THRESHOLD = 0.32;
   const STOP = new Set(['the','and','for','with','per','from','each','singapore','new','value']);
-  const VARIANT_SYNONYMS = new Set(['plain','original','classic','natural','regular','traditional','unflavoured','unsweetened']);
 
   // --- Gate 1: brand ---
   function normBrand(b) { return b ? b.toLowerCase().replace(/[^a-z0-9]/g, '') : null; }
@@ -948,8 +947,7 @@ function groupByProduct(results, storeVariantCount = {}) {
   function qtyMatch(a, b) {
     if (!a || !b) return true; // unknown qty → don't gate
     if (a.dim !== b.dim) return false;
-    const diff = Math.abs(a.amt - b.amt);
-    return diff <= 20 || diff / Math.max(a.amt, b.amt) < 0.05;
+    return Math.abs(a.amt - b.amt) / Math.max(a.amt, b.amt) < 0.12;
   }
 
   // --- Gate 3: IDF-weighted token similarity on qty-stripped name ---
@@ -966,19 +964,14 @@ function groupByProduct(results, storeVariantCount = {}) {
   function idf(w) { return Math.log((N + 1) / ((freq[w] || 0) + 1)); }
 
   function tokenSim(a, b) {
-    const ka = kws(a).filter(w => !VARIANT_SYNONYMS.has(w));
-    const kb = kws(b).filter(w => !VARIANT_SYNONYMS.has(w));
+    const ka = kws(a), kb = kws(b);
     const setA = new Set(ka), setB = new Set(kb);
     if (!setA.size || !setB.size) return 0;
     let shared = 0, totalA = 0, totalB = 0;
     for (const w of ka) { const wt = idf(w); totalA += wt; if (setB.has(w)) shared += wt; }
     for (const w of kb) { totalB += idf(w); }
     const union = totalA + totalB - shared;
-    if (union > 0) return shared / union;
-    // All tokens have zero IDF (every word appears in every result) — fall back to unweighted Jaccard
-    const intersect = [...setA].filter(w => setB.has(w)).length;
-    const unionSize = new Set([...setA, ...setB]).size;
-    return unionSize > 0 ? intersect / unionSize : 0;
+    return union > 0 ? shared / union : 0;
   }
 
   function realImageUrl(img) {
@@ -995,31 +988,13 @@ function groupByProduct(results, storeVariantCount = {}) {
     const bA = normBrand(a.brand), bB = normBrand(b.brand);
     if (bA && bB && bA !== bB) return false;
 
-    // Gate 2: quantity must match if both parseable.
-    // If only one side has a parseable size, use price ratio as a proxy —
-    // same product across stores shouldn't differ by more than 60% in price.
+    // Gate 2: quantity must match if both parseable
     const qA = parseQty(a.unit) || parseQty(a.product_name);
     const qB = parseQty(b.unit) || parseQty(b.product_name);
     if (!qtyMatch(qA, qB)) return false;
-    if ((!qA || !qB) && a.price && b.price) {
-      const ratio = a.price / b.price;
-      if (ratio < 0.4 || ratio > 2.5) return false;
-    }
 
     // Gate 3: token similarity on qty-stripped names (Jaccard-weighted IDF)
-    if (tokenSim(a.product_name, b.product_name) < THRESHOLD) return false;
-
-    // Gate 4: discriminating word veto — if a word with high IDF appears in
-    // one name but not the other, they are different product lines/variants.
-    // Exception: variant-neutral words (plain/original/classic/natural/regular)
-    // are synonymous across stores and should never trigger the veto.
-    const DISC = 0.8;
-    const ka = new Set(kws(a.product_name));
-    const kb = new Set(kws(b.product_name));
-    for (const w of ka) { if (!kb.has(w) && idf(w) > DISC && !VARIANT_SYNONYMS.has(w)) return false; }
-    for (const w of kb) { if (!ka.has(w) && idf(w) > DISC && !VARIANT_SYNONYMS.has(w)) return false; }
-
-    return true;
+    return tokenSim(a.product_name, b.product_name) >= THRESHOLD;
   }
 
   const groups = [], assigned = new Set();
@@ -1034,15 +1009,11 @@ function groupByProduct(results, storeVariantCount = {}) {
       if (items.some(x => x.store_key === r2.store_key)) continue;
       if (isSameProduct(r, r2)) { items.push(r2); assigned.add(j); }
     }
-    // Pick display name from the store with the most variants in this search
-    const nameSource = [...items].sort((a, b) =>
-      (storeVariantCount[b.store_key] || 0) - (storeVariantCount[a.store_key] || 0)
-    )[0];
     groups.push({
-      displayName: nameSource.product_name,
-      brand: nameSource.brand || null,
-      unit: nameSource.unit || null,
-      image: items.find(x => realImageUrl(x.image))?.image || '',
+      displayName: r.product_name,
+      brand: r.brand || null,
+      unit: r.unit || null,
+      image: items.find(x => x.image)?.image || '',
       items: items.sort((a, b) => {
         const aSO = a.promo === 'SOLD OUT', bSO = b.promo === 'SOLD OUT';
         if (aSO !== bSO) return aSO ? 1 : -1;
@@ -1098,13 +1069,8 @@ function normalizePromo(text, price, originalPrice) {
   return t.replace(/\s+/g, ' ');
 }
 
-const _NAME_SUBS = [
-  [/\bGardenia(\s+Enriched)?\s+White\s+Bread\b/gi, 'Gardenia Bread'],
-];
-
 function cleanProductName(raw) {
   if (!raw) return '';
-  for (const [pat, rep] of _NAME_SUBS) raw = raw.replace(pat, rep);
   // Strip promo prefixes that bleed into scraped names (e.g. "Any 2 At ", "3 For ", "2 @ ")
   raw = raw.replace(/^(?:any\s+\d+\s+(?:at|for|@)\s*|\d+\s+(?:for|@|at)\s*|buy\s+\d+\s+get\s+\d+\s*)/i, '').trim();
   // If the name still contains garbage (price, rating, add-to-cart), extract the real name
@@ -1130,24 +1096,11 @@ function renderResults(query, results) {
   section.style.display = 'block';
 
   const filtered = results.filter(r => selectedStores.has(r.store_key));
-  // Dedup by (store_key, normalised name, price) — guards against the DB
-  // having two product rows for the same item from different scrape runs
-  const dedupSeen = new Set();
-  const deduped = filtered.filter(r => {
-    const key = `${r.store_key}|${r.product_name.toLowerCase().replace(/\s+/g,' ').trim()}|${r.price}`;
-    if (dedupSeen.has(key)) return false;
-    dedupSeen.add(key);
-    return true;
-  });
-  // Count how many products each store has in this search — used to pick
-  // the naming convention for matched groups (dominant store = most variants)
-  const storeVariantCount = {};
-  deduped.forEach(r => { storeVariantCount[r.store_key] = (storeVariantCount[r.store_key] || 0) + 1; });
-  const groups   = groupByProduct(deduped, storeVariantCount);
+  const groups   = groupByProduct(filtered);
   const matched  = groups.filter(g => g.items.length > 1).length;
 
   document.getElementById('result-label').textContent =
-    `${deduped.length} prices · ${groups.length} products · ${matched} matched across stores`;
+    `${filtered.length} prices · ${groups.length} products · ${matched} matched across stores`;
 
   // Build maxPriceCache for savings calculation
   groups.forEach(g => {

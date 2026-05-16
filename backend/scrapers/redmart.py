@@ -6,10 +6,11 @@ Use the catalog query-param URL instead, which properly filters by term.
 Results are post-filtered to keep only products whose names contain at
 least one meaningful word from the search query.
 """
+import asyncio
 from datetime import datetime
 from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
-from ._base import _EXTRACT_JS, _UA, block_resources
+from ._base import _EXTRACT_JS, _UA
 
 # Proper query-param URL loads real search results; hash URL is a fallback only
 _URLS = [
@@ -18,6 +19,7 @@ _URLS = [
     "https://redmart.lazada.sg/search/#q={}&from=input",
 ]
 
+# Words so common they can't tell us whether a product is relevant
 _SKIP_WORDS = {
     "the", "and", "for", "with", "per", "from", "each", "in", "of",
     "a", "an", "to", "at", "is", "it",
@@ -29,31 +31,25 @@ def _is_relevant(name: str, query: str) -> bool:
     name_l  = name.lower()
     q_words = [w for w in query.lower().split() if len(w) > 2 and w not in _SKIP_WORDS]
     if not q_words:
-        return True
+        return True  # can't tell — keep it
     return any(w in name_l for w in q_words)
 
 
-async def search_redmart(query: str, limit: int = 20, browser=None) -> list[dict]:
-    own_browser = browser is None
-    _pw = None
-    if own_browser:
-        _pw = await async_playwright().start()
-        browser = await _pw.chromium.launch(headless=True)
+async def search_redmart(query: str, limit: int = 20) -> list[dict]:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        ctx = await browser.new_context(
+            user_agent=_UA,
+            viewport={"width": 1280, "height": 900},
+            extra_http_headers={"Accept-Language": "en-SG,en;q=0.9"},
+        )
+        page = await ctx.new_page()
 
-    ctx = await browser.new_context(
-        user_agent=_UA,
-        viewport={"width": 1280, "height": 900},
-        extra_http_headers={"Accept-Language": "en-SG,en;q=0.9"},
-    )
-    page = await ctx.new_page()
-    await page.route("**/*", block_resources)
-    raw = []
-
-    try:
+        raw = []
         for url_tmpl in _URLS:
             url = url_tmpl.format(quote_plus(query))
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+                await page.goto(url, wait_until="load", timeout=30_000)
                 # Lazada is heavy — wait for product cards to appear
                 try:
                     await page.wait_for_selector(
@@ -62,39 +58,26 @@ async def search_redmart(query: str, limit: int = 20, browser=None) -> list[dict
                     )
                 except Exception:
                     pass
+                await asyncio.sleep(3)
             except Exception as exc:
                 print(f"[red] {url} failed: {exc}")
                 continue
 
             title = await page.title()
             print(f"[red] loaded: {title} | {page.url}")
-
-            # Quick check before expensive full-DOM extraction
-            no_results = await page.evaluate("""() => {
-                const t = document.body.innerText.toLowerCase();
-                return !t.includes('$') || t.includes('0 results') || t.includes('no results found');
-            }""")
-            if no_results:
-                print(f"[red] no results detected, skipping URL")
-                continue
-
             raw = await page.evaluate(_EXTRACT_JS)
             print(f"[red] DOM extracted {len(raw)} price nodes")
 
+            # Only keep products whose names actually mention the query
             relevant = [r for r in raw if _is_relevant(r.get("name", ""), query)]
             print(f"[red] relevant after filter: {len(relevant)}")
             if relevant:
                 raw = relevant
                 break
+            # If no relevant results, try next URL
             raw = []
 
-    except Exception as exc:
-        print(f"[red] error: {exc}")
-    finally:
-        await ctx.close()
-        if own_browser and _pw:
-            await browser.close()
-            await _pw.stop()
+        await browser.close()
 
     products = []
     for item in raw[:limit]:
@@ -105,8 +88,7 @@ async def search_redmart(query: str, limit: int = 20, browser=None) -> list[dict
         orig = item.get("original_price")
         products.append({
             "name": name, "brand": "", "price": float(price),
-            "original_price": float(orig) if orig else None,
-            "promo": item.get("promo") or None, "unit": "",
+            "original_price": float(orig) if orig else None, "promo": item.get("promo") or None, "unit": "",
             "image": item.get("image", ""), "barcode": None,
             "category": "", "store": "red",
             "scraped_at": datetime.utcnow(),
