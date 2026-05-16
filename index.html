@@ -82,13 +82,21 @@
       color: var(--accent);
       transition: opacity 0.22s ease 0.3s;
     }
-    .logo:hover .logo-c,
+    @media (hover: hover) {
+      .logo:hover .logo-c {
+        transform: rotate(-90deg);
+        transition: transform 0.4s cubic-bezier(0.34, 1.2, 0.64, 1) 0.18s;
+      }
+      .logo:hover .logo-art,
+      .logo:hover .logo-ly {
+        opacity: 0;
+        transition: opacity 0.18s ease 0s;
+      }
+    }
     .logo.logo-active .logo-c {
       transform: rotate(-90deg);
       transition: transform 0.4s cubic-bezier(0.34, 1.2, 0.64, 1) 0.18s;
     }
-    .logo:hover .logo-art,
-    .logo:hover .logo-ly,
     .logo.logo-active .logo-art,
     .logo.logo-active .logo-ly {
       opacity: 0;
@@ -153,12 +161,15 @@
       .hero-sub { font-size: .92rem; margin-bottom: 2rem; }
 
       .search-wrap {
-        padding: .35rem .35rem .35rem .8rem;
+        padding: .3rem .3rem .3rem .8rem;
         border-radius: 10px;
-        gap: .4rem;
+        gap: .35rem;
       }
       #search-input { font-size: .92rem; }
-      .search-btn { padding: .55rem 1rem; font-size: .88rem; border-radius: 7px; }
+      #search-input::placeholder { font-size: .85rem; }
+      .search-btn { padding: .55rem .9rem; font-size: .88rem; border-radius: 7px; min-width: 44px; }
+      .search-btn .btn-label { display: none; }
+      .search-btn .btn-icon { display: block !important; width: 20px; height: 20px; }
 
       .popular-tags { gap: .35rem; margin-top: .75rem; }
       .tag { font-size: .68rem; padding: .25rem .55rem; }
@@ -195,12 +206,16 @@
     /* ── SEARCH BOX ── */
     .search-wrap {
       width: 100%; max-width: 640px;
-      display: flex; gap: .6rem;
+      display: flex; align-items: center; gap: .6rem;
       background: var(--mid); border: 1px solid var(--border);
-      border-radius: 12px; padding: .5rem .5rem .5rem 1rem;
+      border-radius: 12px; padding: .5rem .5rem .5rem .9rem;
+    }
+    .search-icon {
+      width: 18px; height: 18px; flex-shrink: 0;
+      color: var(--muted); pointer-events: none;
     }
     #search-input {
-      flex: 1; min-width: 0; /* fix #13: prevents flex child from overflowing */
+      flex: 1; min-width: 0;
       background: none; border: none; outline: none;
       color: var(--text); font-size: 1rem;
     }
@@ -210,7 +225,7 @@
       border: none; border-radius: 8px;
       padding: .6rem 1.4rem; font-size: .95rem; font-weight: 700;
       cursor: pointer; transition: opacity .2s;
-      white-space: nowrap; min-height: 44px; /* 44pt target */
+      white-space: nowrap; min-height: 44px; display: flex; align-items: center; justify-content: center;
     }
     .search-btn:hover { opacity: .85; }
 
@@ -627,9 +642,9 @@
   </p>
 
   <div class="search-wrap">
-    <span>🔍</span>
-    <input id="search-input" type="text" placeholder="Search any item, e.g. eggs, milo" />
-    <button class="search-btn" onclick="doSearch()">Compare</button>
+    <svg class="search-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><line x1="13" y1="13" x2="18" y2="18"/></svg>
+    <input id="search-input" type="text" placeholder="Search any item, e.g. eggs, milo" autocomplete="off" />
+    <button class="search-btn" onclick="doSearch()"><span class="btn-label">Compare</span><svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor" style="display:none"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></button>
   </div>
 
   <label class="fresh-toggle" id="fresh-toggle">
@@ -638,13 +653,12 @@
   </label>
 
   <div class="popular-tags">
-    <span class="tag" onclick="quickSearch('Royal Umbrella Rice')">Royal Umbrella Rice</span>
-    <span class="tag" onclick="quickSearch('Meiji Protein Milk')">Meiji Protein Milk</span>
-    <span class="tag" onclick="quickSearch('Seng Choon Farm Fresh Eggs')">Seng Choon Farm Fresh Eggs</span>
-    <span class="tag" onclick="quickSearch('Facial Tissue')">Facial Tissue</span>
-    <div style="flex-basis:100%;height:0"></div>
-    <span class="tag" onclick="quickSearch('Gardenia White Bread')">Gardenia White Bread</span>
-    <span class="tag" onclick="quickSearch('100 Plus Isotonic Drink')">100 Plus Isotonic Drink</span>
+    <span class="tag" onclick="quickSearch('eggs')">Eggs</span>
+    <span class="tag" onclick="quickSearch('milk')">Milk</span>
+    <span class="tag" onclick="quickSearch('rice')">Rice</span>
+    <span class="tag" onclick="quickSearch('bread')">Bread</span>
+    <span class="tag" onclick="quickSearch('coffee')">Coffee</span>
+    <span class="tag" onclick="quickSearch('chicken')">Chicken</span>
   </div>
 </section>
 
