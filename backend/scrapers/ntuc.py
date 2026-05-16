@@ -66,17 +66,29 @@ _EXTRACT_JS = r"""() => {
         const { prices } = data;
         if (prices.length === 0) continue;
 
-        // Promo: check data-testid label first, then text pattern — scoped to card
+        // Promo detection — three passes:
+        // 1. data-testid="promo-label" inside card
+        // 2. data-testid="promo-label" in parent (badge may sit above the card boundary)
+        // 3. Element-level textContent scan (handles "2 for " + "$19.90" split across nodes)
         let promo = null;
         for (const el of card.querySelectorAll('[data-testid="promo-label"]')) {
             const t = el.textContent.trim();
             if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) { promo = t; break; }
         }
+        if (!promo && card.parentElement) {
+            for (const el of card.parentElement.querySelectorAll('[data-testid="promo-label"]')) {
+                if (card.contains(el)) continue;
+                // Only direct siblings of card, not promos buried in other nested cards
+                if (el.parentElement === card.parentElement) {
+                    const t = el.textContent.trim();
+                    if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) { promo = t; break; }
+                }
+            }
+        }
         if (!promo) {
-            const tw = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
-            let tn;
-            while ((tn = tw.nextNode())) {
-                const t = tn.textContent.trim();
+            for (const el of card.querySelectorAll('span, p, div')) {
+                if (el.children.length > 5) continue;
+                const t = el.textContent.trim();
                 if (promoRe.test(t) && t.length < 60 && !promoJunk.test(t)) { promo = t; break; }
             }
         }
