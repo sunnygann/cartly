@@ -38,7 +38,7 @@ _EXTRACT_JS = r"""() => {
         let card = null;
         for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
-            if (el.querySelector('img') && el.children.length >= 2 && el.children.length <= 15) {
+            if (el.querySelector('img') && el.children.length >= 2 && el.children.length <= 40) {
                 card = el;
                 break; // smallest matching ancestor = tightest card boundary
             }

@@ -1,8 +1,9 @@
 """
 Cold Storage scraper.
 Uses two sources:
-  1. window.__next_f RSC stream (initialProducts) — 30 in-stock items pre-rendered on load.
-  2. RSC fetch responses during scroll — additional items loaded lazily.
+  1. window.__next_f RSC stream — scans all entries for any known product-list key
+     (initialProducts, products, searchProducts, productList, items).
+  2. RSC fetch responses intercepted during scroll — additional items loaded lazily.
 Products deduplicated by productId. inventoryStatus field used for sold-out detection.
 SSL certificate is expired — we pass ignore_https_errors=True.
 """
@@ -17,16 +18,13 @@ _URL = "https://www.coldstorage.com.sg/search?q={}"
 _MAX_SCROLLS = 30
 
 _EXTRACT_JS = r"""() => {
-    for (const entry of (window.__next_f || [])) {
-        if (!Array.isArray(entry) || typeof entry[1] !== 'string') continue;
-        const content = entry[1];
-        const marker = '"initialProducts":';
-        const idx = content.indexOf(marker);
-        if (idx === -1) continue;
+    const MARKERS = ['"initialProducts":', '"products":', '"searchProducts":', '"productList":', '"items":'];
+    const seen = new Set();
+    const results = [];
 
-        const arrStart = content.indexOf('[', idx + marker.length);
-        if (arrStart === -1) continue;
-
+    function extractArray(content, markerEnd) {
+        const arrStart = content.indexOf('[', markerEnd);
+        if (arrStart === -1 || arrStart - markerEnd > 30) return null;
         let depth = 0;
         for (let i = arrStart; i < content.length; i++) {
             if (content[i] === '[') depth++;
@@ -34,21 +32,47 @@ _EXTRACT_JS = r"""() => {
                 depth--;
                 if (depth === 0) {
                     try { return JSON.parse(content.slice(arrStart, i + 1)); }
-                    catch (e) { return []; }
+                    catch (e) { return null; }
+                }
+            }
+        }
+        return null;
+    }
+
+    for (const entry of (window.__next_f || [])) {
+        if (!Array.isArray(entry) || typeof entry[1] !== 'string') continue;
+        const content = entry[1];
+        for (const marker of MARKERS) {
+            let searchFrom = 0;
+            let idx;
+            while ((idx = content.indexOf(marker, searchFrom)) !== -1) {
+                searchFrom = idx + 1;
+                const arr = extractArray(content, idx + marker.length);
+                if (!Array.isArray(arr) || arr.length === 0) continue;
+                // Must contain productId to be a product list
+                if (!arr[0] || typeof arr[0] !== 'object' || !arr[0].productId) continue;
+                for (const p of arr) {
+                    if (p.productId && !seen.has(p.productId)) {
+                        seen.add(p.productId);
+                        results.push(p);
+                    }
                 }
             }
         }
     }
-    return [];
+    return results;
 }"""
 
 
+_PRODUCT_KEYS = ("products", "searchProducts", "productList", "items", "initialProducts")
+
 def _find_products(obj) -> list | None:
-    """Recursively search for a 'products' key containing a non-empty list."""
+    """Recursively search for a known product-list key containing product dicts."""
     if isinstance(obj, dict):
-        v = obj.get("products")
-        if isinstance(v, list) and v:
-            return v
+        for key in _PRODUCT_KEYS:
+            v = obj.get(key)
+            if isinstance(v, list) and v and isinstance(v[0], dict) and "productId" in v[0]:
+                return v
         for val in obj.values():
             found = _find_products(val)
             if found is not None:
