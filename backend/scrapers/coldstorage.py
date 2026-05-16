@@ -86,6 +86,8 @@ def _find_products(obj) -> list | None:
 
 
 _T_PREFIX = re.compile(r'^T[0-9a-fA-F]+,')
+# Any of these strings appearing on a line suggests it may contain product data
+_SCROLL_RSC_HINTS = ('"products"', '"searchProducts"', '"productList"', '"initialProducts"', '"productId"')
 
 
 def _parse_scroll_response(body: bytes) -> list[dict]:
@@ -95,7 +97,7 @@ def _parse_scroll_response(body: bytes) -> list[dict]:
         text = body.decode("utf-8", "replace")
         for line in text.split("\n"):
             line = line.strip()
-            if not line or '"products"' not in line:
+            if not line or not any(h in line for h in _SCROLL_RSC_HINTS):
                 continue
             colon_idx = line.find(":")
             if colon_idx == -1:
@@ -214,6 +216,18 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
                 print(f"[cold] reached bottom on scroll {scroll_n + 1}, stopping")
                 break
 
+        # Re-run _EXTRACT_JS after scrolling — window.__next_f may have new RSC entries
+        post_scroll_raw = await pg.evaluate(_EXTRACT_JS)
+        new_from_post = 0
+        for item in post_scroll_raw:
+            pid = item.get("productId")
+            if pid and pid not in seen_ids:
+                seen_ids.add(pid)
+                collected.append(item)
+                new_from_post += 1
+        print(f"[cold] post-scroll __next_f: {len(post_scroll_raw)} total, {new_from_post} new unique")
+        print(f"[cold] pending_responses: {len(pending_responses)} RSC bodies ({sum(len(b) for b in pending_responses)} bytes)")
+
     except Exception as exc:
         print(f"[cold] error: {exc}")
     finally:
@@ -223,12 +237,17 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
             await _pw.stop()
 
     # Merge scroll-triggered RSC responses
-    for body in pending_responses:
-        for item in _parse_scroll_response(body):
+    for i, body in enumerate(pending_responses):
+        items = _parse_scroll_response(body)
+        new_from_body = 0
+        for item in items:
             pid = item.get("productId")
             if pid not in seen_ids:
                 seen_ids.add(pid)
                 collected.append(item)
+                new_from_body += 1
+        if items or len(body) > 500:
+            print(f"[cold] scroll RSC body {i}: {len(body)} bytes → {len(items)} products ({new_from_body} new)")
 
     print(f"[cold] total collected: {len(collected)} products")
 

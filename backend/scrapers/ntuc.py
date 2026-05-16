@@ -38,7 +38,7 @@ _EXTRACT_JS = r"""() => {
         let card = null;
         for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
-            if (el.querySelector('img') && el.children.length >= 2 && el.children.length <= 40) {
+            if (el.querySelector('img') && el.children.length >= 2) {
                 card = el;
                 break; // smallest matching ancestor = tightest card boundary
             }
@@ -192,6 +192,30 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
         }""")
         title = await page.title()
         print(f"[ntuc] loaded: {title}")
+        diag = await page.evaluate("""() => {
+            const priceRe = /^\$?(\d+\.\d{2})$/;
+            let priceNodes = 0, noImgInWalk = 0, tooFewChildren = 0;
+            const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = iter.nextNode())) {
+                const txt = node.textContent.trim();
+                if (!txt.match(priceRe)) continue;
+                const price = parseFloat(txt.replace('$',''));
+                if (price < 0.10 || price > 999) continue;
+                priceNodes++;
+                let el = node.parentElement;
+                let foundImg = false;
+                for (let i = 0; i < 14; i++) {
+                    if (!el || el === document.body) break;
+                    if (el.querySelector('img')) { foundImg = true; break; }
+                    el = el.parentElement;
+                }
+                if (!foundImg) noImgInWalk++;
+            }
+            const productLike = document.querySelectorAll('[class*="product" i],[class*="ProductItem"],[data-testid*="product" i]');
+            return { priceNodes, noImgInWalk, productLikeEls: productLike.length };
+        }""")
+        print(f"[ntuc] diag: {diag}")
         raw = await page.evaluate(_EXTRACT_JS)
     except Exception as exc:
         print(f"[ntuc] error: {exc}")
