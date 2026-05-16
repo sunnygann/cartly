@@ -86,6 +86,7 @@ async def _upsert_price(db: AsyncSession, store: Store, raw: dict):
     )
     product = r.scalars().first()
     if product is None:
+        print(f"[upsert] WARN product not found after insert/conflict for: {name_lower!r}")
         return
 
     if raw.get("image"):
@@ -243,6 +244,10 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
                             print(f"[{store_key}] upsert error: {exc}")
                     await db.commit()
                     updated = await _fresh_prices(db, q, since=scrape_start if fresh else None)
+                    store_counts = {}
+                    for r in updated:
+                        store_counts[r.get("store_key", "?")] = store_counts.get(r.get("store_key", "?"), 0) + 1
+                    print(f"[{store_key}] fresh_prices: {len(updated)} total → {store_counts}")
                     any_results = True
                     yield _sse({"type": "results", "source": "live", "results": updated})
 
