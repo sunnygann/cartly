@@ -277,6 +277,9 @@
     @media (max-width: 400px) {
       .pg-badge { display: none; }
       .pg-row { grid-template-columns: 7px 1fr auto auto; }
+      /* sold-out badge must stay visible — it's the only status indicator */
+      .pg-row-sold-out .pg-badge-sold-out { display: inline-flex; }
+      .pg-row-sold-out { grid-template-columns: 7px 1fr auto auto auto; }
     }
 
     /* ── PRICE HISTORY CHART ── */
@@ -416,6 +419,8 @@
     @media (max-width: 400px) {
       .pg-badge { display: none; }
       .pg-row { grid-template-columns: 8px 1fr auto auto; }
+      .pg-row-sold-out .pg-badge-sold-out { display: inline-flex; }
+      .pg-row-sold-out { grid-template-columns: 7px 1fr auto auto auto; }
     }
 
     /* ── DARK MODE OVERRIDES ── */

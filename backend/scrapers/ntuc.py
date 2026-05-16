@@ -36,7 +36,7 @@ _EXTRACT_JS = r"""() => {
         }
     }
 
-    // STEP 2: find product cards (promo‑first, then image fallback)
+    // STEP 2: find product cards (image-first for tight boundary, then promo within card)
     const cards = new Map();
 
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
@@ -50,33 +50,27 @@ _EXTRACT_JS = r"""() => {
 
         let el = node.parentElement;
         let card = null;
-        let promo = null;
 
-        for (let i = 0; i < 14; i++) {
+        // Walk up to find the tightest element that looks like a product card
+        for (let i = 0; i < 10; i++) {
             if (!el || el === document.body) break;
-
-            if (!promo) {
-                const ancestorText = el.textContent;
-                for (const p of allPromos) {
-                    if (ancestorText.includes(p)) {
-                        promo = p;
-                        break;
-                    }
-                }
-                if (promo) {
-                    card = el;
-                    break;
-                }
-            }
-
-            if (!card && el.querySelector('img') && el.children.length >= 2) {
+            if (el.querySelector('img') && el.children.length >= 2) {
                 card = el;
+                break;
             }
-
             el = el.parentElement;
         }
 
         if (!card) continue;
+
+        // Find promo only within the card itself (avoids anchoring to large section containers)
+        let promo = null;
+        for (const p of allPromos) {
+            if (card.textContent.includes(p)) {
+                promo = p;
+                break;
+            }
+        }
 
         let insideStrike = false;
         let p = node.parentElement;
