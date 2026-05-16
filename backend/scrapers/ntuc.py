@@ -194,7 +194,8 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
         print(f"[ntuc] loaded: {title}")
         diag = await page.evaluate("""() => {
             const priceRe = /^\$?(\d+\.\d{2})$/;
-            let priceNodes = 0, noImgInWalk = 0, tooFewChildren = 0;
+            let priceNodes = 0, noImgInWalk = 0;
+            const childDist = {};
             const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
             let node;
             while ((node = iter.nextNode())) {
@@ -204,16 +205,20 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
                 if (price < 0.10 || price > 999) continue;
                 priceNodes++;
                 let el = node.parentElement;
-                let foundImg = false;
+                let found = false;
                 for (let i = 0; i < 14; i++) {
                     if (!el || el === document.body) break;
-                    if (el.querySelector('img')) { foundImg = true; break; }
+                    if (el.querySelector('img') && el.children.length >= 2) {
+                        const c = el.children.length;
+                        const k = c <= 5 ? 'c' + c : c <= 10 ? 'c6-10' : c <= 20 ? 'c11-20' : c <= 40 ? 'c21-40' : c <= 80 ? 'c41-80' : 'c80+';
+                        childDist[k] = (childDist[k] || 0) + 1;
+                        found = true; break;
+                    }
                     el = el.parentElement;
                 }
-                if (!foundImg) noImgInWalk++;
+                if (!found) noImgInWalk++;
             }
-            const productLike = document.querySelectorAll('[class*="product" i],[class*="ProductItem"],[data-testid*="product" i]');
-            return { priceNodes, noImgInWalk, productLikeEls: productLike.length };
+            return { priceNodes, noImgInWalk, childDist };
         }""")
         print(f"[ntuc] diag: {diag}")
         raw = await page.evaluate(_EXTRACT_JS)
@@ -260,4 +265,6 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
         })
 
     print(f"[ntuc] parsed {len(products)} products")
+    if products:
+        print(f"[ntuc] sample names: {[p['name'] for p in products[:6]]}")
     return products
