@@ -14,7 +14,7 @@ from playwright.async_api import async_playwright
 from ._base import _UA, block_resources
 
 _URL = "https://www.coldstorage.com.sg/search?q={}"
-_MAX_SCROLLS = 50
+_MAX_SCROLLS = 30
 
 _EXTRACT_JS = r"""() => {
     for (const entry of (window.__next_f || [])) {
@@ -73,17 +73,15 @@ def _parse_scroll_response(body: bytes) -> list[dict]:
             line = line.strip()
             if not line or '"products"' not in line:
                 continue
-            # Strip RSC chunk-ID prefix "N:"
             colon_idx = line.find(":")
             if colon_idx == -1:
                 continue
             payload = line[colon_idx + 1:]
-            # Handle Next.js RSC text-blob format "Tlen," or "T0xlen,"
+            # Handle Next.js RSC text-blob format "Tlen,"
             if _T_PREFIX.match(payload):
                 payload = payload[payload.index(",") + 1:]
             if not payload:
                 continue
-            # Find first JSON start character
             if payload[0] not in ('{', '['):
                 for ch in ('{', '['):
                     idx = payload.find(ch)
@@ -145,14 +143,13 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
         url = _URL.format(query)
         await pg.goto(url, wait_until="domcontentloaded", timeout=28_000)
 
-        # Wait for initial RSC stream
         try:
             await pg.wait_for_function(
                 """() => (window.__next_f || []).some(
                     e => Array.isArray(e) && typeof e[1] === 'string'
                       && e[1].includes('"initialProducts"')
                 )""",
-                timeout=4_000,
+                timeout=2_500,
             )
         except Exception:
             pass
@@ -170,44 +167,28 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
         print(f"[cold] initial RSC: {len(initial_raw)} items")
 
         # Source 2: scroll to trigger lazy-loading.
-        # Use JS-driven scroll that properly fires IntersectionObserver.
-        # After each RSC event, wait 300ms for DOM to render before re-reading height.
-        scroll_height = await pg.evaluate("() => document.body.scrollHeight")
+        # Keep timeouts short (1.5s RSC wait, 4 consecutive misses) so total
+        # scroll time stays well within the 45s asyncio.wait_for budget.
         current_y = 0
+        scroll_height = await pg.evaluate("() => document.body.scrollHeight")
         consecutive_no_rsc = 0
-
         for scroll_n in range(_MAX_SCROLLS):
             rsc_event.clear()
             prev_count = len(pending_responses)
-
-            # Advance scroll position; overshoot slightly to ensure sentinel enters viewport
-            next_y = current_y + 900
-            await pg.evaluate(f"window.scrollTo({{top: {next_y}, behavior: 'instant'}})")
-            current_y = next_y
-
+            current_y = min(current_y + 800, scroll_height)
+            await pg.evaluate(f"window.scrollTo(0, {current_y})")
             try:
-                await asyncio.wait_for(rsc_event.wait(), timeout=3.0)
-                # Wait for DOM to render new items before measuring new height
-                await asyncio.sleep(0.3)
+                await asyncio.wait_for(rsc_event.wait(), timeout=1.5)
                 scroll_height = await pg.evaluate("() => document.body.scrollHeight")
                 consecutive_no_rsc = 0
-                print(f"[cold] scroll {scroll_n + 1}: RSC received, height={scroll_height}")
             except asyncio.TimeoutError:
                 consecutive_no_rsc += 1
-                if consecutive_no_rsc >= 6:
-                    print(f"[cold] no RSC for 6 consecutive scrolls at y={current_y}, stopping")
+                if consecutive_no_rsc >= 4:
+                    print(f"[cold] no RSC for 4 consecutive scrolls, stopping")
                     break
-                # Re-read height in case page grew without triggering our event
-                new_h = await pg.evaluate("() => document.body.scrollHeight")
-                if new_h != scroll_height:
-                    scroll_height = new_h
-                    consecutive_no_rsc = 0
-
-            # If we've scrolled past the page, scroll to actual bottom once more
-            if current_y > scroll_height:
-                await pg.evaluate(f"window.scrollTo({{top: {scroll_height}, behavior: 'instant'}})")
-
-        print(f"[cold] scroll done: {len(pending_responses)} RSC bodies captured")
+            if len(pending_responses) == prev_count and current_y >= scroll_height:
+                print(f"[cold] reached bottom on scroll {scroll_n + 1}, stopping")
+                break
 
     except Exception as exc:
         print(f"[cold] error: {exc}")
@@ -217,10 +198,9 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
             await browser.close()
             await _pw.stop()
 
-    # Merge all scroll-triggered RSC responses
+    # Merge scroll-triggered RSC responses
     for body in pending_responses:
-        items = _parse_scroll_response(body)
-        for item in items:
+        for item in _parse_scroll_response(body):
             pid = item.get("productId")
             if pid not in seen_ids:
                 seen_ids.add(pid)
