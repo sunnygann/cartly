@@ -174,7 +174,7 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
         await page.evaluate("""async () => {
             const delay = ms => new Promise(r => setTimeout(r, ms));
             let lastH = 0, noGrowth = 0;
-            const deadline = Date.now() + 28000;
+            const deadline = Date.now() + 35000;
             for (let pass = 0; pass < 15; pass++) {
                 if (Date.now() >= deadline) break;
                 const h = document.body.scrollHeight;

@@ -205,14 +205,25 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
         scrape_start = datetime.utcnow()
 
         async def run_one(store_key, fn):
+            task = None
             try:
                 browser = await get_browser()
-                return store_key, await asyncio.wait_for(fn(q, browser=browser), timeout=45.0)
+                task = asyncio.create_task(fn(q, browser=browser))
+                # Shield the task so that a timeout cancels the wait but NOT
+                # the task itself — the task's finally block (ctx.close) runs
+                # in the background without blocking as_completed.
+                return store_key, await asyncio.wait_for(
+                    asyncio.shield(task), timeout=90.0
+                )
             except asyncio.TimeoutError:
-                print(f"[{store_key}] timeout after 45s")
+                print(f"[{store_key}] timeout after 90s")
+                if task:
+                    task.cancel()
                 return store_key, []
             except Exception as exc:
                 print(f"[{store_key}] error: {exc}")
+                if task:
+                    task.cancel()
                 return store_key, []
 
         tasks = [asyncio.create_task(run_one(k, fn)) for k, fn in SCRAPERS.items()]
