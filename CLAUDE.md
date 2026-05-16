@@ -7,6 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Never** run `git commit`, `git push`, or `surge` without explicit user permission.
 - Only modify code files. Do not run deployment or publish commands autonomously.
 - At the end of every prompt, if any changes were made to any codebase, make clear which files were edited.
+- **Before updating this file**, read every source file in the project from scratch — `database.py`, `models.py`, `browser.py`, `main.py`, `backend/scrapers/_base.py`, `backend/scrapers/ntuc.py`, `backend/scrapers/coldstorage.py`, `backend/scrapers/shengsiong.py`, `backend/scrapers/redmart.py`, `backend/scrapers/donki.py`, `backend/scrapers/giant.py`, `backend/scrapers/__init__.py`, and `index.html` — so that all descriptions reflect the actual current code, not stale memory.
+
+---
 
 ## Infrastructure
 
@@ -50,105 +53,285 @@ DELETE FROM prices WHERE product_id IN (SELECT id FROM products WHERE LOWER(name
 User types query
   → index.html calls GET /api/search?q=... (SSE stream)
     → backend immediately emits any cached DB results (< 6h old)
-    → if query not recently scraped, launches all scrapers in parallel via asyncio.create_task
-      → each scraper runs in the shared Chromium browser (or via Algolia for Giant)
+    → if query not recently scraped, launches all 6 scrapers in parallel via asyncio.create_task
+      → each scraper manages its own Playwright browser (or Algolia API for Giant)
       → as each scraper finishes, results are upserted to DB and streamed back live
     → when all scrapers finish, ScrapedQuery record is written (marks query as cached)
   → frontend renders/re-renders results on each SSE message
   → SSE stream closes on "done" event
 ```
 
-The `?fresh=1` flag (visible only at `?debug` in URL) bypasses the `ScrapedQuery` cache and forces a full re-scrape. `ScrapedQuery` is only written if at least one scraper returned results — a total failure (network outage, geo-block) will not cache an empty result set.
+The `?fresh=1` flag bypasses the `ScrapedQuery` cache and forces a full re-scrape. `ScrapedQuery` is only written after at least one scraper returns results — a total failure will not poison the cache with an empty result set.
 
-### Backend (`backend/`)
+---
 
-**`main.py`** — Core of the application.
-- `lifespan` context manager handles startup (DB init, browser pre-warm, store seeding) and shutdown (browser teardown). Replaces the deprecated `@app.on_event` pattern.
-- `_upsert_price()` — Atomically inserts a product using `INSERT ... ON CONFLICT DO NOTHING` against the unique `lower(name)` index, then SELECTs the canonical row and updates optional fields (image, brand, unit). This prevents duplicate product rows from concurrent scrapers.
-- `_fresh_prices()` — Returns all prices scraped within the TTL window matching the query words. Uses a subquery to select only the most recent price per `(product_id, store_id)` pair.
-- `_query_was_scraped()` — Checks `ScrapedQuery` table; if the same query was scraped within 6 hours, skips re-scraping.
-- `ScrapedQuery` is only written after a successful scrape (at least one store returned results), preventing a network failure from poisoning the cache.
-- SSE stream emits `{type: "results", source: "cache"|"live", results: [...]}` as each data source completes, then `{type: "done"}`.
+## File-by-file reference
 
-**`database.py`** — Async SQLAlchemy engine setup. Converts Railway's `postgres://` URL to `postgresql+asyncpg://` (required by asyncpg). Exports `AsyncSessionLocal` and `get_db` dependency.
+### `backend/database.py`
 
-**`browser.py`** — Manages a single shared Playwright Chromium instance across all scrapers.
-- Protected by `asyncio.Lock` to prevent two coroutines from launching a new browser simultaneously (e.g. after a crash).
-- Browser is pre-warmed at startup so the first search request doesn't pay the launch cost.
-- All scrapers receive the shared `browser` object and open their own `BrowserContext` within it. They never close the browser itself, only their context.
+Sets up the async SQLAlchemy engine. One critical job: Railway injects `DATABASE_URL` as `postgres://...` (psycopg2 syntax), but asyncpg requires `postgresql+asyncpg://...` — this file rewrites the prefix on startup. Exports:
+- `engine` — the async engine
+- `AsyncSessionLocal` — the session factory used everywhere
+- `get_db` — a FastAPI dependency that yields a session per request
+- `init_db` — runs `CREATE TABLE IF NOT EXISTS` for all models; called at startup
 
-**`models.py`** — Four SQLAlchemy ORM models:
+---
+
+### `backend/models.py`
+
+Four SQLAlchemy ORM classes:
 
 | Table | Key columns | Notes |
 |-------|-------------|-------|
-| `stores` | `key`, `name`, `color` | Seeded at startup; never changes at runtime |
-| `products` | `name`, `brand`, `unit`, `image`, `barcode`, `category` | One row per unique product (case-insensitive name). Unique index on `lower(name)`. |
-| `prices` | `product_id`, `store_id`, `price`, `original_price`, `promo`, `scraped_at` | One row per scrape event. Grows unboundedly; indexed on `(scraped_at, product_id, store_id)`. |
+| `stores` | `key`, `name`, `color` | Seeded at startup from `STORES_SEED` in `main.py`; never mutated at runtime |
+| `products` | `name`, `brand`, `unit`, `image`, `barcode`, `category` | One row per unique product (by lowercase name). Has an index on `name` (not a functional `lower()` index — no unique constraint enforced at DB level). |
+| `prices` | `product_id`, `store_id`, `price`, `original_price`, `promo`, `scraped_at` | Append-only price history. One row per scrape event. Composite index on `(product_id, store_id, scraped_at)`. |
 | `scraped_queries` | `query`, `scraped_at` | Records when a query was last fully scraped. TTL = 6 hours. |
 
-### Scrapers (`backend/scrapers/`)
+**Important**: There is no `UNIQUE` constraint on `lower(products.name)`. Concurrent scrapers can create duplicate product rows. `_upsert_price` in `main.py` handles this with `scalars().first()` which tolerates duplicates.
 
-All scrapers follow the same contract: `async def search_X(query: str, browser=None) -> list[dict]`
+---
 
-Each dict has keys: `name, brand, price, original_price, promo, unit, image, barcode, category, store, scraped_at`
+### `backend/browser.py`
 
-There are **no result limits** — scrapers return every product they find.
+Manages a single globally shared Playwright Chromium instance via `get_browser()` and `stop_browser()`. Checks `_browser.is_connected()` before reusing; re-launches if crashed.
 
-**Shared base (`_base.py`)**:
-- `_EXTRACT_JS` — JavaScript injected into pages to extract prices via DOM text-node iteration. Walks up the DOM tree from each price node to find product name, image, original price, and promo text. Used by NTUC, RedMart, Donki, and Sheng Siong (fallback path).
-- `block_resources()` — Playwright route handler that aborts image/font/media/stylesheet requests to speed up page loads.
-- `_is_relevant()` — Filters extracted products to keep only those whose names contain at least one meaningful query word. Used by RedMart and Donki (Lazada pages return mixed results).
-- `_UA` — Shared desktop Chrome user-agent string.
+**Currently unused.** All scrapers manage their own browser lifecycle with `async with async_playwright() as p: browser = await p.chromium.launch(...)`. This file is a leftover from an earlier shared-browser architecture that was rolled back.
 
-**NTUC (`ntuc.py`)**: Loads `fairprice.com.sg/search?query=...`. Uses `_EXTRACT_JS` for DOM extraction. Extracts unit info from a dedicated DOM element (the only scraper that reliably gets unit data from the site itself).
+---
 
-**Cold Storage (`coldstorage.py`)**: Two-phase RSC (React Server Components) extraction.
-1. Reads `window.__next_f` array on page load → finds `initialProducts` JSON array (initial page render).
-2. Intercepts network responses during scroll → captures lazy-loaded product batches.
-Deduplicates by `productId`. Uses `inventoryStatus` field for sold-out detection; marks sold-out items with `promo = "SOLD OUT"`. Does not use `_EXTRACT_JS`.
+### `backend/main.py`
 
-**Giant (`giant.py`)**: Does NOT use DOM or browser. Calls Algolia InstantSearch directly (app `PFCHI1YM66`, index `giant_product_live`). Algolia DNS is geo-restricted to Singapore ISP networks — returns empty results on non-SG networks. Works correctly on Railway Singapore. **Giant results are stored in the DB but the frontend currently hides Giant behind a "coming soon" chip.**
+The FastAPI application. All API traffic enters here.
 
-**Sheng Siong (`shengsiong.py`)**: Three-path extraction with fallback chain.
-1. JSON-LD structured data (`<script type="application/ld+json">`) — fastest and most accurate; used when available.
-2. DOM sweep: finds price elements by CSS class, walks up the DOM tree to find name and image. Image walk restarts from the original price element (independent of name walk depth) to avoid landing on page-level ancestors.
-3. (Implicit) Returns empty if both paths fail.
+**Startup** (`@app.on_event("startup")`): Calls `init_db()` then seeds the 6 stores into the DB if they don't exist.
 
-**RedMart (`redmart.py`)**: Scrapes `lazada.sg` catalog with `seller_type=official` filter. Uses `_EXTRACT_JS` + `_is_relevant()` post-filter. Falls back to `redmart.lazada.sg` URLs.
+**`_upsert_price(db, store, raw)`**: Saves one scraped product.
+1. Queries for an existing `Product` with the same lowercased name using `scalars().first()` (tolerates duplicate rows).
+2. Creates a new `Product` if none found.
+3. Always inserts a new `Price` row (history is append-only).
+4. Updates `product.image`, `brand`, `unit` if the scraper provided them.
 
-**Don Don Donki (`donki.py`)**: Scrapes Lazada brand pages for Don Don Donki. Uses `_EXTRACT_JS` + `_is_relevant()`. Extracts `promo` and `original_price` from `_EXTRACT_JS` output (Lazada shows strikethrough prices and promo badges in DOM).
+**`_fresh_prices(db, query, since)`**: The main DB read path. Returns prices for products matching all query words scraped within the TTL window. Uses a subquery to select only the **most recent** price per `(product_id, store_id)` pair — so multiple scrapes of the same item in one TTL window only show the latest price.
 
-### Frontend (`index.html`)
+**`_query_was_scraped(db, query)`**: Checks if a `ScrapedQuery` row exists within the last 6 hours. If yes, skips re-scraping.
+
+**`GET /api/search?q=...&fresh=...`** — Main SSE endpoint:
+1. Emits `{type: "results", source: "cache", results: [...]}` immediately.
+2. If recently scraped and `fresh=false`, emits `{type: "done"}` and exits.
+3. Otherwise, launches all 6 scrapers in parallel via `asyncio.create_task`. As each finishes, upserts its results and emits `{type: "results", source: "live", results: [...]}` with the refreshed full result set.
+4. Writes a `ScrapedQuery` row after all scrapers finish.
+5. Emits `{type: "done"}`.
+
+**`GET /api/history/{product_id}`**: Returns 30-day price history grouped by store. Used by the frontend chart.
+
+**`GET /api/stores`**: Returns the 6 store rows.
+
+**`GET /api/health`**: Simple uptime check.
+
+---
+
+### `backend/scrapers/__init__.py`
+
+The scraper registry. Maps store keys to scraper functions:
+
+```python
+SCRAPERS = {
+    "ntuc":  search_ntuc,
+    "sheng": search_shengsiong,
+    "giant": search_giant,
+    "cold":  search_coldstorage,
+    "red":   search_redmart,
+    "donki": search_donki,
+}
+```
+
+`main.py` iterates this dict to launch all scrapers.
+
+---
+
+### `backend/scrapers/_base.py`
+
+Shared utilities used by multiple scrapers:
+
+**`_BLOCKED_TYPES` + `block_resources(route)`**: A Playwright route handler. Registered with `page.route("**/*", block_resources)`, it aborts all requests for `image`, `font`, `media`, and `stylesheet` resources — cutting page load time significantly since scrapers only need DOM/JS data.
+
+**`_UA`**: Shared desktop Chrome user-agent string used by all Playwright-based scrapers.
+
+**`_EXTRACT_JS`**: Core DOM extraction script injected as JavaScript into pages. It:
+1. Pre-scans the page for promo text islands (e.g. "Any 2 @ $22.00" banners above product grids).
+2. Walks every text node in the DOM looking for `$X.XX` price patterns.
+3. For each price found, climbs up to 10 ancestor elements to find: the nearest product name (leaf text in `span/p/a/h*`), product image (`img`), struck-through original price (`del`, `[class*="was"]`, etc.), and promo text (elements with classes like "promo", "badge", "label", or text matching multi-buy patterns).
+4. Deduplicates by `name|price` key.
+5. Returns `[{name, price, image, original_price, promo}]`.
+
+Used directly by RedMart and Donki. NTUC has its own variant of this script. Cold Storage and ShengSiong have completely different extraction approaches.
+
+**`scrape_store()`**: A generic helper that loads a URL, waits, runs `_EXTRACT_JS`, and cleans names. Currently unused by any live scraper — kept as infrastructure.
+
+---
+
+### `backend/scrapers/ntuc.py`
+
+**Target**: `fairprice.com.sg/search?query=...`
+
+**How**:
+- Launches its own Playwright browser; registers `block_resources`.
+- Waits for `$` to appear in body text (proxy for "products rendered"), then sleeps 2s.
+- Runs a **multi-pass adaptive scroll** — scrolls to `scrollHeight`, checks if height grew, repeats up to 20 times with 1.5s waits. Stops after 2 consecutive passes with no height change. Captures all infinite-scroll products.
+- Runs a **custom `_EXTRACT_JS` variant** using a promo-first card detection strategy:
+  1. Collects all promo labels from `[data-testid="promo-label"]` and multi-buy text patterns across the whole page.
+  2. For each price node, climbs the tree. If an ancestor contains a known promo string → that element is the card boundary, promo is captured.
+  3. Falls back to "element with `img` + at least 2 children" as the card boundary.
+  4. Classifies prices as sale vs. original by checking if the price node is inside a strikethrough selector.
+- Cleans product names (strips price strings, "add to cart" noise, promo prefixes).
+- No result limit — returns every product found.
+
+---
+
+### `backend/scrapers/coldstorage.py`
+
+**Target**: `coldstorage.com.sg/search?q=...`
+
+**How**: Cold Storage is a Next.js RSC app — product data is not in the rendered HTML as text nodes but embedded as JSON in script tags and streamed over the network.
+
+- Registers a **response interceptor** (`pg.on("response", ...)`) capturing HTTP responses from the Cold Storage search URL with content-type `x-component`/`text/plain`/`application/json` — these are RSC payloads.
+- On page load, evaluates JS to read `window.__next_f` (the RSC stream array baked into initial HTML), scanning for `"initialProducts":` and parsing the JSON array that follows. Gives ~30 initial in-stock products.
+- Runs a **multi-pass incremental scroll** (up to 15 passes, 2s each). After each scroll, processes newly captured response bodies via `_parse_scroll_response()` which splits lines looking for `{"products": [...]}` JSON. Tracks collected count — stops when stable for 2 consecutive passes.
+- Deduplicates by `productId`.
+- Uses `inventoryStatus` field for sold-out detection; marks them `promo = "SOLD OUT"`.
+- Uses `promoPrice` vs `price` fields for sale detection — no DOM scraping.
+- Does not use `_EXTRACT_JS`.
+
+---
+
+### `backend/scrapers/shengsiong.py`
+
+**Target**: `shengsiong.com.sg`
+
+**How**: Three-path extraction with fallback:
+
+1. **Homepage search interaction**: Navigates to homepage, finds search input, types query, presses Enter. If the resulting URL doesn't reflect the query (search didn't fire), retries with direct URL formats (`/search/{query+}`, `/search/{slug}`, `/search?q={query}`).
+
+2. **JSON-LD path** (primary): Reads all `<script type="application/ld+json">` blocks. If any contain `"@type": "Product"` or `"Offer"`, extracts name/price/image from structured data and returns immediately.
+
+3. **DOM sweep** (fallback): Queries all `[class*="price"]` elements. For each, climbs up to 4 levels to find a name element (by class or tag), then up to 3 more levels for an `img`. Collects `{name, price, image, original_price}`.
+
+No result limit on any path.
+
+---
+
+### `backend/scrapers/redmart.py`
+
+**Target**: RedMart catalog on `lazada.sg`
+
+**How**:
+- Tries three URL patterns in order: `lazada.sg/catalog/?q=...&seller_type=official`, `redmart.lazada.sg/catalog/?q=...`, `redmart.lazada.sg/search/#q=...`.
+- Uses the shared `_EXTRACT_JS` to extract all price nodes from the DOM.
+- Post-filters with a local `_is_relevant()` function (defined in this file, not `_base.py`): keeps only products whose names contain at least one meaningful query word (Lazada returns mixed-seller results).
+- Stops trying URLs once relevant results are found.
+- No result limit.
+
+---
+
+### `backend/scrapers/donki.py`
+
+**Target**: Don Don Donki products on `lazada.sg`
+
+**How**: Almost identical to RedMart. Uses two URL patterns:
+- `lazada.sg/catalog/?q=don+don+donki+{query}` — prepends the brand to the search.
+- `lazada.sg/catalog/?q={query}&seller_type=official&brand=don-don-donki` — brand filter.
+
+Uses `_EXTRACT_JS` + a local `_is_relevant()` function (defined in this file, not `_base.py`). Stop-on-first-hit URL logic. No result limit.
+
+---
+
+### `backend/scrapers/giant.py`
+
+**Target**: Giant's Algolia search index (no browser)
+
+**How**: The only scraper that does not use Playwright at all. Giant's website uses Algolia InstantSearch with public credentials baked into their JS.
+
+- Resolves the Algolia hostname via **DNS-over-HTTPS** (Cloudflare `1.1.1.1`) because `PFCHI1YM66-dsn.algolia.net` is geo-restricted to Singapore ISP DNS and fails on Railway's datacenter DNS resolver.
+- Sends a POST to Algolia's REST API with `hitsPerPage: 1000`.
+- Parses the clean JSON response — no DOM scraping.
+- Returns empty list if DNS resolution fails (non-SG networks).
+
+**Giant results are stored in the DB but the frontend hides Giant behind a "coming soon" chip** — the `data-store="giant"` chip has `pointer-events:none` and no `onclick`.
+
+---
+
+### `index.html`
 
 Single-file frontend. No build step. Deployed to Surge manually.
 
-**Search flow**:
-1. `doSearch()` opens an `EventSource` SSE connection and immediately shows the "Searching stores…" animated badge.
-2. On each `results` message, calls `renderResults()` which re-groups and re-renders the full result set.
-3. On `done`, closes the stream and hides the badge.
+#### Layout (top to bottom)
+- Sticky nav bar with desktop links + mobile hamburger drawer
+- Hero section: animated scrambling headline, search box, "rescrape (dev)" checkbox, popular tag pills
+- Stores strip: clickable chips to filter which stores appear in results (`ntuc`, `cold`, `sheng`, `red`, `donki` active; `giant` disabled with "soon" chip)
+- Results section (hidden until first search): price-grid + 30-day Chart.js history chart
+- Basket builder: item table + order summary sidebar with store-split bar chart
+- "How it works" explainer
+- Price alert email signup (UI only, no backend wired)
+- Footer
 
-**`groupByProduct(results, storeVariantCount)`**: Clusters results from different stores into product cards using a multi-gate matching algorithm:
-- Gate 0: identical image URL → definite match
-- Gate 1: brand must match if both known
-- Gate 2: parsed quantity (g/ml/ct) must match within 5%; uses price ratio as proxy when quantity is unparseable
-- Gate 3: IDF-weighted keyword Jaccard similarity ≥ 0.32 on quantity-stripped names
-- Gate 4: high-IDF discriminating words that appear in one name but not the other veto the match
+#### Search flow
 
-`kws()` results are memoized within each `groupByProduct()` call (Map keyed by product name) to avoid redundant string operations in the O(n²) pairwise comparison loop.
+1. `doSearch()` opens an `EventSource` to `/api/search?q=...`. Shows a floating "Searching stores…" badge with animated dots, countdown timer, and progress bar.
+2. On each `results` SSE message, calls `renderResults()` which re-renders the full grid from scratch. As `live` messages arrive, the badge shows which stores have responded.
+3. On `done`, closes the SSE connection and fades out the badge.
 
-**Basket**: In-memory `basket` array. Add/qty/remove buttons use `data-*` attributes + event delegation (no `onclick` attribute injection) to avoid XSS. `_addBtnData` Map stores item metadata keyed by `product_id-store_key`. `maxPriceCache` is reset on each `renderResults()` call so savings calculations don't use prices from a prior search.
+The `fresh-toggle` checkbox (always visible) passes `&fresh=1` to force a re-scrape bypassing the `ScrapedQuery` cache.
 
-**Dev mode**: The "rescrape (dev)" toggle is hidden by default. Add `?debug` to the URL to reveal it (e.g. `https://cartly.surge.sh/?debug`).
+#### `groupByProduct(results)`
+
+Takes the flat list of results and clusters them into product cards. Runs an O(n²) pairwise comparison with four gates:
+
+- **Gate 0**: Identical image URL (query-param-stripped) → definite match, bypass name checks.
+- **Gate 1**: Both have known brands that differ → not the same product.
+- **Gate 2**: Parse quantity from `unit` or `product_name` (handles `g`, `ml`, `kg`, `l`, `pcs`, `pk`, multi-packs like `6x100ml`). If both parseable and differ by >12% → not the same.
+- **Gate 3**: IDF-weighted Jaccard similarity on quantity-stripped, lowercased names ≥ `THRESHOLD` (0.32). IDF weights are computed across all results in the current search, so rare brand-specific words dominate over common generic words.
+
+Groups sort: most stores first (descending), then cheapest price. Items within a group: available items by price ascending, sold-out items at the bottom.
+
+#### `renderResults()`
+
+Builds the card grid from groups. Each card:
+- Header: product image, name (cleaned via `cleanProductName()` + `extractMeta()`), size/unit subtitle.
+- One row per store: color dot, store name, price (with strikethrough original price if on sale), badge ("Best" / "+X%" / "−X%" / promo text / "Sold Out"), "+ Add" button.
+- `normalizePromo()` canonicalizes raw promo strings into clean formats ("3 for $5.00", "Buy 2 Get 1 Free", "15% off").
+
+After rendering, calls `loadHistory()` on the first product to draw the Chart.js price history.
+
+#### Basket
+
+In-memory `basket` array (not persisted across page reloads). `addToBasket()`, `removeFromBasket()`, `changeQty()` mutate the array and call `renderBasket()`. Order summary shows total, savings vs. `maxPriceCache` (the highest price seen for each product across stores in the current search), and a store-split bar chart.
+
+#### Store filter
+
+`selectedStores` is a `Set` persisted in `localStorage` under key `cartly_stores`. Toggling a chip re-calls `renderResults(_lastQuery, _lastResults)` without any network request.
 
 ---
 
 ## Key constants
 
-- `PRICE_TTL_HOURS = 6` in `main.py` — cache lifetime before re-scrape
-- `_SCRAPER_EXPECTED_S = 25` in `index.html` — expected worst-case scrape time shown in progress bar
-- Algolia credentials in `giant.py` — app ID `PFCHI1YM66`, index `giant_product_live`
-- Store keys: `ntuc`, `giant`, `cold`, `sheng`, `red`, `donki`
-- Brand colors: NTUC `#e8231a`, Giant `#f5a623`, Cold Storage `#0066cc`, Sheng Siong `#2ecc71`, RedMart `#e84393`, Don Don Donki `#e60012`
-- App accent color: `#12b76a` (green)
-- Grouping similarity threshold: `0.32` (`THRESHOLD` in `groupByProduct`)
-- Discriminating word IDF veto threshold: `0.8` (`DISC` in `isSameProduct`)
+| Constant | Location | Value | Purpose |
+|----------|----------|-------|---------|
+| `PRICE_TTL_HOURS` | `main.py` | `6` | Cache lifetime before re-scrape |
+| `_SCRAPER_EXPECTED_S` | `index.html` | `25` | Progress bar duration (seconds) |
+| `THRESHOLD` | `index.html groupByProduct` | `0.32` | Min IDF-weighted Jaccard for product match |
+| Algolia App ID | `giant.py` | `PFCHI1YM66` | Giant Algolia credentials |
+| Algolia Index | `giant.py` | `giant_product_live` | Giant Algolia index name |
+
+## Store reference
+
+| Store key | Display name | Color |
+|-----------|-------------|-------|
+| `ntuc` | NTUC FairPrice | `#e8231a` |
+| `giant` | Giant | `#f5a623` |
+| `cold` | Cold Storage | `#0066cc` |
+| `sheng` | Sheng Siong | `#2ecc71` |
+| `red` | RedMart | `#e84393` |
+| `donki` | Don Don Donki | `#e60012` |
+
+App accent color: `#12b76a` (green)
