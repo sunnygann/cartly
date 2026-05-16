@@ -166,8 +166,12 @@
       padding: .6rem 1.4rem; font-size: .95rem; font-weight: 700;
       cursor: pointer; transition: opacity .2s;
       white-space: nowrap; min-height: 44px; /* 44pt target */
+      flex-shrink: 0;
     }
     .search-btn:hover { opacity: .85; }
+    @media (max-width: 480px) {
+      .search-btn { padding: .6rem .9rem; font-size: .85rem; }
+    }
 
     .fresh-toggle {
       margin-top: .75rem; display: inline-flex; align-items: center; gap: .4rem;
@@ -534,7 +538,7 @@
 
   <div class="search-wrap">
     <span>🔍</span>
-    <input id="search-input" type="text" placeholder="Search any item, e.g. eggs, milo" />
+    <input id="search-input" type="text" placeholder="Search any item, e.g. eggs" />
     <button class="search-btn" onclick="doSearch()">Compare</button>
   </div>
 
