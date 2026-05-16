@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>About — Cartly</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90' font-family='Segoe UI,system-ui,sans-serif' font-weight='800' fill='%2312b76a'>C</text></svg>">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --accent: #12b76a;
+      --dark: #F9FAFB; --mid: #FFFFFF; --card: #F3F4F6;
+      --text: #111111; --muted: #6B7280; --border: rgba(0,0,0,0.08);
+      --nav-bg: rgba(249,250,251,0.92); --drawer-bg: rgba(249,250,251,0.98);
+      --hero-glow: #dcfce7; --badge-text: #065f46;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --dark: #111111; --mid: #1a1a1a; --card: #222222;
+        --text: #eaeaea; --muted: #9ca3af; --border: rgba(255,255,255,0.08);
+        --nav-bg: rgba(17,17,17,0.92); --drawer-bg: rgba(17,17,17,0.98);
+        --hero-glow: #0d1f14; --badge-text: #6ee7b7;
+      }
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--dark); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 1.5rem; height: 60px;
+      background: var(--nav-bg); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { font-size: 1.4rem; font-weight: 800; color: var(--text); text-decoration: none; }
+    .logo span { color: var(--accent); }
+    .nav-links { display: flex; gap: 1rem; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: .9rem; transition: color .2s; padding: .6rem .3rem; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--text); font-weight: 600; }
+    .nav-cta {
+      background: var(--accent); color: #fff;
+      padding: .5rem 1rem; border-radius: 6px;
+      text-decoration: none; font-size: .85rem; font-weight: 600;
+      transition: opacity .2s; white-space: nowrap;
+      display: inline-flex; align-items: center; min-height: 44px;
+    }
+    .nav-cta:hover { opacity: .85; }
+    .nav-hamburger {
+      display: none; flex-direction: column; gap: 5px;
+      justify-content: center; align-items: center;
+      background: none; border: none; cursor: pointer;
+      padding: .6rem; min-width: 44px; min-height: 44px;
+    }
+    .nav-hamburger span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all .3s; }
+    .nav-hamburger.open span:nth-child(1) { transform: rotate(45deg) translate(5px,5px); }
+    .nav-hamburger.open span:nth-child(2) { opacity: 0; transform: scaleX(0); }
+    .nav-hamburger.open span:nth-child(3) { transform: rotate(-45deg) translate(5px,-5px); }
+    .nav-drawer {
+      display: none; position: fixed; top: 60px; left: 0; right: 0; z-index: 99;
+      background: var(--drawer-bg); backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 1.5rem; padding-bottom: calc(1rem + env(safe-area-inset-bottom,0px));
+      flex-direction: column; gap: .25rem;
+    }
+    .nav-drawer a { color: var(--text); text-decoration: none; font-size: 1rem; padding: .9rem 1rem; border-radius: 8px; transition: background .2s; min-height: 44px; display: flex; align-items: center; }
+    .nav-drawer .nav-cta { margin-top: .5rem; justify-content: center; }
+    @media (max-width: 640px) { .nav-links, nav > .nav-cta { display: none; } .nav-hamburger { display: flex; } }
+
+    /* PAGE */
+    .hero-page {
+      text-align: center; padding: 5rem 1.5rem 3.5rem;
+      background: radial-gradient(ellipse at 50% 0%, var(--hero-glow) 0%, var(--dark) 70%);
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: .4rem;
+      background: rgba(18,183,106,.15); border: 1px solid rgba(18,183,106,.3);
+      color: var(--badge-text); padding: .3rem .8rem; border-radius: 999px;
+      font-size: .78rem; font-weight: 600; margin-bottom: 1.5rem;
+    }
+    h1 { font-size: clamp(2rem,5vw,3rem); font-weight: 900; line-height: 1.15; margin-bottom: 1rem; }
+    h1 em { color: var(--accent); font-style: normal; }
+    .hero-sub { color: var(--muted); font-size: 1.05rem; max-width: 540px; margin: 0 auto; line-height: 1.65; }
+
+    .container { max-width: 800px; margin: 0 auto; padding: 4rem 1.5rem; }
+
+    .stats-row {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1rem; margin-bottom: 4rem;
+    }
+    .stat-box {
+      background: var(--mid); border: 1px solid var(--border); border-radius: 12px;
+      padding: 1.5rem 1rem; text-align: center;
+    }
+    .stat-box .num { font-size: 2rem; font-weight: 900; color: var(--accent); line-height: 1; }
+    .stat-box .label { font-size: .8rem; color: var(--muted); margin-top: .4rem; }
+
+    .section { margin-bottom: 3.5rem; }
+    .section h2 { font-size: 1.4rem; font-weight: 800; margin-bottom: 1rem; }
+    .section p { color: var(--muted); line-height: 1.75; margin-bottom: .9rem; }
+
+    .steps { display: flex; flex-direction: column; gap: 1rem; }
+    .step {
+      display: flex; gap: 1rem; align-items: flex-start;
+      background: var(--mid); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem;
+    }
+    .step-num {
+      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+      background: rgba(18,183,106,.15); color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: .9rem;
+    }
+    .step-body h3 { font-size: 1rem; font-weight: 700; margin-bottom: .25rem; }
+    .step-body p { font-size: .9rem; color: var(--muted); line-height: 1.6; margin: 0; }
+
+    .stores-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: .75rem; }
+    .store-row {
+      display: flex; align-items: center; gap: .75rem;
+      background: var(--mid); border: 1px solid var(--border); border-radius: 10px; padding: .9rem 1rem;
+    }
+    .store-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .store-row .store-name { font-weight: 600; font-size: .9rem; }
+    .store-row .store-note { font-size: .75rem; color: var(--muted); margin-top: .1rem; }
+
+    .cta-box {
+      background: linear-gradient(135deg, rgba(18,183,106,.1) 0%, rgba(18,183,106,.05) 100%);
+      border: 1px solid rgba(18,183,106,.25); border-radius: 16px;
+      padding: 2.5rem; text-align: center;
+    }
+    .cta-box h2 { font-size: 1.4rem; font-weight: 800; margin-bottom: .5rem; }
+    .cta-box p { color: var(--muted); margin-bottom: 1.5rem; }
+    .cta-btn {
+      display: inline-flex; align-items: center;
+      background: var(--accent); color: #fff;
+      padding: .75rem 2rem; border-radius: 8px;
+      text-decoration: none; font-weight: 700; font-size: .95rem;
+      transition: opacity .2s;
+    }
+    .cta-btn:hover { opacity: .85; }
+
+    /* FOOTER */
+    footer { border-top: 1px solid var(--border); padding: 2rem 1.5rem; padding-bottom: calc(2rem + env(safe-area-inset-bottom,0px)); text-align: center; color: var(--muted); font-size: .8rem; }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="logo">Cart<span>ly</span></a>
+  <div class="nav-links">
+    <a href="about.html" class="active">About</a>
+    <a href="blog.html">Blog</a>
+    <a href="api.html">API</a>
+  </div>
+  <a href="index.html" class="nav-cta">Compare now</a>
+  <button class="nav-hamburger" id="nav-burger" onclick="toggleNav()" aria-label="Open menu">
+    <span></span><span></span><span></span>
+  </button>
+</nav>
+<div class="nav-drawer" id="nav-drawer">
+  <a href="about.html" onclick="closeNav()">About</a>
+  <a href="blog.html" onclick="closeNav()">Blog</a>
+  <a href="api.html" onclick="closeNav()">API</a>
+  <a href="privacy.html" onclick="closeNav()">Privacy</a>
+  <a href="index.html" class="nav-cta" onclick="closeNav()">Compare now</a>
+</div>
+
+<div class="hero-page">
+  <div class="badge">🇸🇬 Made in Singapore</div>
+  <h1>Built to stop you<br><em>overpaying for groceries.</em></h1>
+  <p class="hero-sub">Grocery prices in Singapore vary more than most people realise. Cartly shows you the difference in real time — for every item, across every major store.</p>
+</div>
+
+<div class="container">
+
+  <div class="stats-row">
+    <div class="stat-box"><div class="num">5</div><div class="label">Stores tracked</div></div>
+    <div class="stat-box"><div class="num">6h</div><div class="label">Cache refresh</div></div>
+    <div class="stat-box"><div class="num">0</div><div class="label">Signup required</div></div>
+    <div class="stat-box"><div class="num">Free</div><div class="label">Always</div></div>
+  </div>
+
+  <div class="section">
+    <h2>Why we built this</h2>
+    <p>A 500g block of Meiji butter can cost $8.90 at NTUC and $6.95 at Sheng Siong on the same day. A tray of eggs may be $3.80 at Cold Storage and $2.60 at NTUC. These aren't sales — this is just how differently supermarkets price the same products.</p>
+    <p>Most Singaporeans shop at whichever supermarket is closest, never knowing they're consistently paying 10–30% more for specific items. Cartly makes the comparison instant — type an item name and see every price, ranked, in under a minute.</p>
+    <p>The basket builder takes it further: add your weekly groceries, and Cartly calculates the cheapest way to split your shopping across stores.</p>
+  </div>
+
+  <div class="section">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>You search for an item</h3>
+          <p>Type any grocery item — a brand, a product, or a category. Cartly searches all five stores simultaneously in real time.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>We scrape the live search results</h3>
+          <p>Each store's search results page is loaded in a headless browser (or Algolia API for Giant). We extract names, prices, promotions, and images — then cache results for 6 hours so repeat searches are instant.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Results are matched and ranked</h3>
+          <p>Products from different stores are clustered by similarity using IDF-weighted name matching and unit parsing. The same product across stores appears in one card, sorted cheapest first.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Build your basket</h3>
+          <p>Add items to your basket as you search. The order summary shows your total, how much you'd save versus worst-case prices, and the optimal store split.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Stores we cover</h2>
+    <div class="stores-grid">
+      <div class="store-row">
+        <div class="store-dot" style="background:#e8231a"></div>
+        <div><div class="store-name">NTUC FairPrice</div><div class="store-note">Live scrape</div></div>
+      </div>
+      <div class="store-row">
+        <div class="store-dot" style="background:#0066cc"></div>
+        <div><div class="store-name">Cold Storage</div><div class="store-note">Live scrape</div></div>
+      </div>
+      <div class="store-row">
+        <div class="store-dot" style="background:#2ecc71"></div>
+        <div><div class="store-name">Sheng Siong</div><div class="store-note">Live scrape</div></div>
+      </div>
+      <div class="store-row">
+        <div class="store-dot" style="background:#e84393"></div>
+        <div><div class="store-name">RedMart</div><div class="store-note">via Lazada</div></div>
+      </div>
+      <div class="store-row">
+        <div class="store-dot" style="background:#e60012"></div>
+        <div><div class="store-name">Don Don Donki</div><div class="store-note">via Lazada</div></div>
+      </div>
+      <div class="store-row" style="opacity:.5">
+        <div class="store-dot" style="background:#f5a623"></div>
+        <div><div class="store-name">Giant</div><div class="store-note">Coming soon</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cta-box">
+    <h2>Ready to start saving?</h2>
+    <p>Search any grocery item and see live prices across all stores.</p>
+    <a href="index.html" class="cta-btn">Start comparing →</a>
+  </div>
+
+</div>
+
+<footer>
+  <p style="margin-bottom:.4rem">
+    <a href="about.html">About</a> · <a href="blog.html">Blog</a> · <a href="api.html">API</a> · <a href="privacy.html">Privacy</a> · <a href="mailto:sunnygann7@gmail.com">Contact</a>
+  </p>
+  <p>© 2026 Cartly · Prices updated every 6 hours · Not affiliated with any supermarket chain</p>
+  <p style="margin-top:.4rem;font-size:.7rem;opacity:.5;font-family:monospace">v%%VERSION%%</p>
+</footer>
+
+<script>
+  function toggleNav() {
+    const drawer = document.getElementById('nav-drawer');
+    const burger = document.getElementById('nav-burger');
+    const open = drawer.style.display === 'flex';
+    drawer.style.display = open ? 'none' : 'flex';
+    burger.classList.toggle('open', !open);
+  }
+  function closeNav() {
+    document.getElementById('nav-drawer').style.display = 'none';
+    document.getElementById('nav-burger').classList.remove('open');
+  }
+</script>
+</body>
+</html>
