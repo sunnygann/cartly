@@ -64,7 +64,7 @@ _EXTRACT_JS = r"""() => {
 }"""
 
 
-_PRODUCT_KEYS = ("products", "searchProducts", "productList", "items", "initialProducts")
+_PRODUCT_KEYS = ("products", "searchProducts", "productList", "items", "initialProducts", "data")
 
 def _find_products(obj) -> list | None:
     """Recursively search for a known product-list key containing product dicts."""

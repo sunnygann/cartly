@@ -6,6 +6,7 @@ Use the catalog query-param URL instead, which properly filters by term.
 Results are post-filtered to keep only products whose names contain at
 least one meaningful word from the search query.
 """
+import asyncio
 from datetime import datetime
 from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
