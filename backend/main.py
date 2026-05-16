@@ -11,7 +11,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database import get_db, init_db, AsyncSessionLocal
 from models import Store, Product, Price, ScrapedQuery, EmailSignup
@@ -66,35 +65,28 @@ async def _get_store(db: AsyncSession, key: str) -> Optional[Store]:
 
 async def _upsert_price(db: AsyncSession, store: Store, raw: dict):
     name_lower = raw["name"].strip()
-
-    # ON CONFLICT DO NOTHING is atomic — prevents duplicate rows when scrapers run concurrently
-    await db.execute(
-        pg_insert(Product.__table__)
-        .values(
-            name=name_lower,
-            brand=raw.get("brand") or None,
-            unit=raw.get("unit") or None,
-            image=raw.get("image") or None,
-            barcode=raw.get("barcode") or None,
-            category=raw.get("category") or None,
-        )
-        .on_conflict_do_nothing()
-    )
-
     r = await db.execute(
         select(Product).where(func.lower(Product.name) == name_lower.lower())
     )
-    product = r.scalars().first()
-    if product is None:
-        print(f"[upsert] WARN product not found after insert/conflict for: {name_lower!r}")
-        return
-
-    if raw.get("image"):
-        product.image = raw["image"]
-    if raw.get("brand"):
-        product.brand = raw["brand"]
-    if raw.get("unit"):
-        product.unit = raw["unit"]
+    product = r.scalar_one_or_none()
+    if not product:
+        product = Product(
+            name=name_lower,
+            brand=raw.get("brand"),
+            unit=raw.get("unit"),
+            image=raw.get("image"),
+            barcode=raw.get("barcode"),
+            category=raw.get("category"),
+        )
+        db.add(product)
+        await db.flush()
+    else:
+        if raw.get("image"):
+            product.image = raw["image"]
+        if raw.get("brand"):
+            product.brand = raw["brand"]
+        if raw.get("unit"):
+            product.unit = raw["unit"]
 
     db.add(Price(
         product_id=product.id,

@@ -175,7 +175,7 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
                     e => Array.isArray(e) && typeof e[1] === 'string'
                       && e[1].includes('"initialProducts"')
                 )""",
-                timeout=2_500,
+                timeout=10_000,
             )
         except Exception:
             pass
@@ -204,7 +204,7 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
             current_y = min(current_y + 800, scroll_height)
             await pg.evaluate(f"window.scrollTo(0, {current_y})")
             try:
-                await asyncio.wait_for(rsc_event.wait(), timeout=1.5)
+                await asyncio.wait_for(rsc_event.wait(), timeout=3.0)
                 scroll_height = await pg.evaluate("() => document.body.scrollHeight")
                 consecutive_no_rsc = 0
             except asyncio.TimeoutError:

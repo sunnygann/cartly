@@ -163,8 +163,12 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
         try:
             await page.wait_for_function(
                 "() => document.body.innerText.includes('$')",
-                timeout=3_000,
+                timeout=12_000,
             )
+        except Exception:
+            pass
+        try:
+            await page.wait_for_load_state("networkidle", timeout=2_000)
         except Exception:
             pass
         # Adaptive scroll: 500px steps at 40ms. Waits 600ms after each full
