@@ -146,7 +146,7 @@ _EXTRACT_JS = r"""() => {
 }"""
 
 
-async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
+async def search_ntuc(query: str, browser=None) -> list[dict]:
     own_browser = browser is None
     _pw = None
     if own_browser:
@@ -163,23 +163,28 @@ async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
         try:
             await page.wait_for_function(
                 "() => document.body.innerText.includes('$')",
-                timeout=12_000,
+                timeout=3_000,
             )
         except Exception:
             pass
-        try:
-            await page.wait_for_load_state("networkidle", timeout=1_000)
-        except Exception:
-            pass
-        # Scroll through the page so intersection observers fire and lazy img.src
-        # values get replaced with real URLs before we extract.
+        # Adaptive scroll: 500px steps at 40ms, exits early if page height
+        # stabilises for 2 consecutive passes (infinite-scroll already settled).
         await page.evaluate("""async () => {
             const delay = ms => new Promise(r => setTimeout(r, ms));
-            const h = document.body.scrollHeight;
-            for (let y = 300; y < h; y += 400) { window.scrollTo(0, y); await delay(40); }
+            let lastH = 0, noGrowth = 0;
+            for (let pass = 0; pass < 8; pass++) {
+                const h = document.body.scrollHeight;
+                if (h === lastH) { if (++noGrowth >= 2) break; }
+                else { noGrowth = 0; }
+                lastH = h;
+                for (let y = 500; y <= h; y += 500) {
+                    window.scrollTo(0, y);
+                    await delay(40);
+                }
+                await delay(300);
+            }
             window.scrollTo(0, 0);
         }""")
-        await asyncio.sleep(0.3)
         title = await page.title()
         print(f"[ntuc] loaded: {title}")
         raw = await page.evaluate(_EXTRACT_JS)
@@ -205,7 +210,7 @@ async def search_ntuc(query: str, limit: int = 20, browser=None) -> list[dict]:
         return n
 
     products = []
-    for item in raw[:limit]:
+    for item in raw:
         name  = clean_name((item.get("name") or "").strip())
         price = item.get("price")
         if not name or not price:

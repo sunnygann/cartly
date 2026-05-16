@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Index, text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -25,7 +25,10 @@ class Product(Base):
     prices   = relationship("Price", back_populates="product")
 
     __table_args__ = (
-        Index("ix_products_name_lower", "name"),
+        # Functional unique index prevents duplicate product rows from concurrent scrapers.
+        # On existing DBs, run: DROP INDEX IF EXISTS ix_products_name_lower;
+        #                        CREATE UNIQUE INDEX uix_products_name_lower ON products (lower(name));
+        Index("uix_products_name_lower", text("lower(name)"), unique=True),
     )
 
 
@@ -43,7 +46,10 @@ class Price(Base):
     store   = relationship("Store",   back_populates="prices")
 
     __table_args__ = (
-        Index("ix_prices_product_store_time", "product_id", "store_id", "scraped_at"),
+        # scraped_at leads so the TTL range filter hits the index before grouping by product/store.
+        # On existing DBs: DROP INDEX ix_prices_product_store_time;
+        #                  CREATE INDEX ix_prices_scraped_at_product_store ON prices (scraped_at, product_id, store_id);
+        Index("ix_prices_scraped_at_product_store", "scraped_at", "product_id", "store_id"),
     )
 
 

@@ -66,7 +66,7 @@ def _parse_scroll_response(body: bytes) -> list[dict]:
     return results
 
 
-async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[dict]:
+async def search_coldstorage(query: str, browser=None) -> list[dict]:
     collected: list[dict] = []
     seen_ids: set = set()
     pending_responses: list = []
@@ -113,7 +113,7 @@ async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[
                     e => Array.isArray(e) && typeof e[1] === 'string'
                       && e[1].includes('"initialProducts"')
                 )""",
-                timeout=10_000,
+                timeout=2_500,
             )
         except Exception:
             pass
@@ -130,25 +130,27 @@ async def search_coldstorage(query: str, limit: int = 20, browser=None) -> list[
                 collected.append(item)
         print(f"[cold] initial RSC: {len(initial_raw)} items")
 
-        # Source 2: scroll in 800px increments to trigger lazy-loading
+        # Source 2: scroll in 800px increments to trigger lazy-loading.
+        # Stop early after 3 consecutive scrolls with no new RSC response.
         current_y = 0
         scroll_height = await pg.evaluate("() => document.body.scrollHeight")
+        consecutive_no_rsc = 0
         for scroll_n in range(_MAX_SCROLLS):
             rsc_event.clear()
             prev_count = len(pending_responses)
             current_y = min(current_y + 800, scroll_height)
             await pg.evaluate(f"window.scrollTo(0, {current_y})")
             try:
-                await asyncio.wait_for(rsc_event.wait(), timeout=3.0)
-                # Page grew — update scroll height
+                await asyncio.wait_for(rsc_event.wait(), timeout=1.0)
                 scroll_height = await pg.evaluate("() => document.body.scrollHeight")
+                consecutive_no_rsc = 0
             except asyncio.TimeoutError:
-                pass
-            if len(pending_responses) == prev_count:
-                if current_y < scroll_height:
-                    # Still more page to scroll through — keep going without a response
-                    continue
-                print(f"[cold] no new RSC response on scroll {scroll_n + 1}, stopping")
+                consecutive_no_rsc += 1
+                if consecutive_no_rsc >= 3:
+                    print(f"[cold] no new RSC for 3 consecutive scrolls, stopping")
+                    break
+            if len(pending_responses) == prev_count and current_y >= scroll_height:
+                print(f"[cold] reached page bottom on scroll {scroll_n + 1}, stopping")
                 break
 
     except Exception as exc:

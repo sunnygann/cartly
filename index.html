@@ -538,7 +538,7 @@
     <button class="search-btn" onclick="doSearch()">Compare</button>
   </div>
 
-  <label class="fresh-toggle">
+  <label class="fresh-toggle" id="fresh-toggle" style="display:none">
     <input type="checkbox" id="fresh-check">
     <span>rescrape (dev)</span>
   </label>
@@ -790,6 +790,11 @@ const _SCRAPER_EXPECTED_S = 25; // expected worst-case (CS with 4 pages)
 let basket    = [];
 let histChart = null;
 let maxPriceCache = {};
+const _addBtnData = new Map();
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
 // ── NAV HAMBURGER ── //
 function toggleNav() {
@@ -869,6 +874,7 @@ function doSearch() {
   const fresh  = document.getElementById('fresh-check').checked;
   const source = new EventSource(`${API}/api/search?q=${encodeURIComponent(q)}${fresh ? '&fresh=1' : ''}`);
   _activeSource = source;
+  _setSearching(true);
 
   source.onmessage = (e) => {
     const msg = JSON.parse(e.data);
@@ -876,7 +882,6 @@ function doSearch() {
       _lastResults = msg.results;
       if (msg.results.length > 0) {
         renderResults(q, msg.results);
-        _setSearching(true);
       }
       if (msg.source === 'live') {
         // Track which stores have now returned results
@@ -955,9 +960,13 @@ function groupByProduct(results, storeVariantCount = {}) {
   // --- Gate 3: IDF-weighted token similarity on qty-stripped name ---
   const QTY_STRIP = /\b\d+(?:\.\d+)?\s*(?:[xX×]\s*\d+(?:\.\d+)?\s*)?(?:ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|caps?|sachets?)\b/gi;
 
+  const _kwsCache = new Map();
   function kws(name) {
-    return name.replace(QTY_STRIP, ' ').toLowerCase().replace(/[^a-z0-9\s]/g,' ')
+    if (_kwsCache.has(name)) return _kwsCache.get(name);
+    const r = name.replace(QTY_STRIP, ' ').toLowerCase().replace(/[^a-z0-9\s]/g,' ')
       .split(/\s+/).filter(w => w.length > 1 && !STOP.has(w));
+    _kwsCache.set(name, r);
+    return r;
   }
 
   const freq = {};
@@ -1149,7 +1158,8 @@ function renderResults(query, results) {
   document.getElementById('result-label').textContent =
     `${deduped.length} prices · ${groups.length} products · ${matched} matched across stores`;
 
-  // Build maxPriceCache for savings calculation
+  // Reset before rebuilding so stale prices from a prior query don't leak into basket savings
+  maxPriceCache = {};
   groups.forEach(g => {
     const available = g.items.filter(x => x.promo !== 'SOLD OUT');
     const maxP = Math.max(...(available.length ? available : g.items).map(x => x.price));
@@ -1157,6 +1167,7 @@ function renderResults(query, results) {
   });
 
   grid.innerHTML = '';
+  _addBtnData.clear();
   groups.forEach(group => {
     // Sort: available items by price first, sold-out items at the bottom
     const available  = group.items.filter(x => x.promo !== 'SOLD OUT').sort((a, b) => a.price - b.price);
@@ -1184,9 +1195,16 @@ const { clean, sub: parsedSub } = extractMeta(cleanRaw);
       const hasMarkdown = !isSoldOut && item.original_price && item.original_price > item.price;
       const discPct   = hasMarkdown ? Math.round((1 - item.price / item.original_price) * 100) : 0;
       const promoLabel = (!isSoldOut && item.promo) ? normalizePromo(item.promo, item.price, item.original_price) : null;
-      const sn        = cleanProductName(item.product_name).replace(/'/g,"\\'");
-      const sk        = item.store_key;
-      const snm       = item.store_name.replace(/'/g,"\\'");
+      const btnKey    = `${item.product_id}-${item.store_key}`;
+      _addBtnData.set(btnKey, {
+        name: cleanProductName(item.product_name),
+        storeKey: item.store_key,
+        storeName: item.store_name,
+        price: item.price,
+        unit: item.unit || '',
+        productId: item.product_id,
+        storeColor: item.store_color,
+      });;
 
       if (isSoldOut) {
         return `
@@ -1221,7 +1239,7 @@ const { clean, sub: parsedSub } = extractMeta(cleanRaw);
           <span class="pg-store" style="color:${item.store_color}">${item.store_name}</span>
           ${priceHtml}
           ${badge}
-          <button class="pg-add" onclick="addToBasket('${sn}','${sk}','${snm}',${item.price},'${item.unit||''}',${item.product_id},'${item.store_color}')">+ Add</button>
+          <button class="pg-add" data-key="${btnKey}">+ Add</button>
         </div>`;
     }).join('');
 
@@ -1333,22 +1351,20 @@ function renderBasket() {
 
   tbody.innerHTML = '';
   basket.forEach(item => {
-    const safeName  = item.name.replace(/'/g, "\\'");
-    const safeStore = item.storeKey;
     const row = document.createElement('tr');
     row.innerHTML = `
       <td>
-        <span class="item-name">${item.name.substring(0, 35)}</span>
-        <span class="store-tag" style="background:${item.storeColor}22;color:${item.storeColor}">${item.storeName}</span>
+        <span class="item-name">${escHtml(item.name.substring(0, 35))}</span>
+        <span class="store-tag" style="background:${item.storeColor}22;color:${item.storeColor}">${escHtml(item.storeName)}</span>
       </td>
-      <td class="basket-col-store">${item.storeName}</td>
+      <td class="basket-col-store">${escHtml(item.storeName)}</td>
       <td>
-        <button class="qty-btn" onclick="changeQty('${safeName}','${safeStore}',-1)">−</button>
+        <button class="qty-btn" data-name="${escHtml(item.name)}" data-store="${escHtml(item.storeKey)}" data-delta="-1">−</button>
         <span style="margin:0 .4rem">${item.qty}</span>
-        <button class="qty-btn" onclick="changeQty('${safeName}','${safeStore}',1)">+</button>
+        <button class="qty-btn" data-name="${escHtml(item.name)}" data-store="${escHtml(item.storeKey)}" data-delta="1">+</button>
       </td>
       <td>$${(item.price * item.qty).toFixed(2)}</td>
-      <td><button class="remove-btn" onclick="removeFromBasket('${safeName}','${safeStore}')">✕</button></td>
+      <td><button class="remove-btn" data-name="${escHtml(item.name)}" data-store="${escHtml(item.storeKey)}">✕</button></td>
     `;
     tbody.appendChild(row);
   });
@@ -1404,6 +1420,27 @@ function signupAlert() {
 
 // ── ENTER key to search ── //
 document.getElementById('search-input').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// ── Show rescrape toggle only in ?debug mode ── //
+if (new URLSearchParams(window.location.search).has('debug')) {
+  document.getElementById('fresh-toggle').style.display = '';
+}
+
+// ── EVENT DELEGATION: product add buttons (avoids XSS via onclick attribute injection) ── //
+document.getElementById('price-grid').addEventListener('click', e => {
+  const btn = e.target.closest('.pg-add');
+  if (!btn) return;
+  const d = _addBtnData.get(btn.dataset.key);
+  if (d) addToBasket(d.name, d.storeKey, d.storeName, d.price, d.unit, d.productId, d.storeColor);
+});
+
+// ── EVENT DELEGATION: basket qty / remove buttons ── //
+document.getElementById('basket-table').addEventListener('click', e => {
+  const qtyBtn = e.target.closest('.qty-btn');
+  if (qtyBtn) { changeQty(qtyBtn.dataset.name, qtyBtn.dataset.store, +qtyBtn.dataset.delta); return; }
+  const removeBtn = e.target.closest('.remove-btn');
+  if (removeBtn) removeFromBasket(removeBtn.dataset.name, removeBtn.dataset.store);
+});
 </script>
 </body>
 </html>

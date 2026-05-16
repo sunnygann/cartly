@@ -1,6 +1,4 @@
 """Shared DOM extraction logic reused across all store scrapers."""
-import asyncio
-from datetime import datetime
 from playwright.async_api import async_playwright
 
 _BLOCKED_TYPES = {"image", "font", "media", "stylesheet"}
@@ -131,77 +129,11 @@ _EXTRACT_JS = """() => {
 }"""
 
 
-async def scrape_store(
-    store_key: str,
-    search_urls: list[str],
-    query: str,
-    limit: int = 20,
-    wait_selector: str = None,
-    extra_sleep: float = 2.0,
-) -> list[dict]:
-    """Load each URL candidate until one gives products, then extract."""
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        ctx = await browser.new_context(
-            user_agent=_UA, viewport={"width": 1280, "height": 900}
-        )
-        page = await ctx.new_page()
+_SKIP_WORDS = {"the","and","for","with","per","from","each","in","of","a","an","to","at","is","it"}
 
-        raw = []
-        for url_tmpl in search_urls:
-            url = url_tmpl.format(query)
-            try:
-                await page.goto(url, wait_until="load", timeout=28_000)
-                if wait_selector:
-                    try:
-                        await page.wait_for_selector(wait_selector, timeout=8_000)
-                    except Exception:
-                        pass
-                await asyncio.sleep(extra_sleep)
-            except Exception as exc:
-                print(f"[{store_key}] {url} failed: {exc}")
-                continue
-
-            title = await page.title()
-            print(f"[{store_key}] loaded: {title} | {page.url}")
-            raw = await page.evaluate(_EXTRACT_JS)
-            print(f"[{store_key}] DOM extracted {len(raw)} price nodes")
-            if raw:
-                break
-
-        await browser.close()
-
-    import re
-    def clean_name(n: str) -> str:
-        if not n:
-            return ''
-        n = re.sub(r'\$\d+(?:\.\d+)?', '', n)
-        n = re.sub(r'add\s+to\s+cart', '', n, flags=re.IGNORECASE)
-        n = re.sub(r'\d+\.\d+\s*\(\d+\)', '', n)
-        n = re.sub(r'^(?:any\s+\d+\s+(?:at|for|@)\s*|\d+\s+(?:for|@|at)\s*|buy\s+\d+\s+get\s+\d+\s*)', '', n, flags=re.IGNORECASE)
-        n = re.sub(r'\s+', ' ', n).strip()
-        return n
-
-    products = []
-    for item in raw[:limit]:
-        name  = clean_name((item.get("name") or "").strip())
-        price = item.get("price")
-        if not name or not price:
-            continue
-        orig = item.get("original_price")
-        products.append({
-            "name":           name,
-            "brand":          "",
-            "price":          float(price),
-            "original_price": float(orig) if orig else None,
-            "promo":          item.get("promo") or None,
-            "unit":           "",
-            "image":          item.get("image", ""),
-            "barcode":        None,
-            "category":       "",
-            "store":          store_key,
-            "scraped_at":     datetime.utcnow(),
-        })
-
-    print(f"[{store_key}] parsed {len(products)} products")
-    return products
+def _is_relevant(name: str, query: str) -> bool:
+    name_l  = name.lower()
+    q_words = [w for w in query.lower().split() if len(w) > 2 and w not in _SKIP_WORDS]
+    if not q_words:
+        return True
+    return any(w in name_l for w in q_words)
