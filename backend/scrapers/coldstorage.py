@@ -238,6 +238,8 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
 
     # Merge scroll-triggered RSC responses
     for i, body in enumerate(pending_responses):
+        text = body.decode("utf-8", "replace")
+        has_pid = '"productId"' in text
         items = _parse_scroll_response(body)
         new_from_body = 0
         for item in items:
@@ -247,7 +249,7 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
                 collected.append(item)
                 new_from_body += 1
         if items or len(body) > 500:
-            print(f"[cold] scroll RSC body {i}: {len(body)} bytes → {len(items)} products ({new_from_body} new)")
+            print(f"[cold] scroll RSC body {i}: {len(body)}b hasPid:{has_pid} → {len(items)} products ({new_from_body} new) | {repr(text[:120])}")
 
     print(f"[cold] total collected: {len(collected)} products")
 

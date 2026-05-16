@@ -3,6 +3,7 @@ Don Don Donki scraper.
 Donki SG has no direct online store. We scrape their Lazada SG brand page
 which lists their products with prices.
 """
+import asyncio
 from datetime import datetime
 from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
