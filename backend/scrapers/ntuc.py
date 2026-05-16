@@ -95,8 +95,10 @@ _EXTRACT_JS = r"""() => {
 
         if (nonStrikePrices.length > 0) {
             salePrice = Math.min(...nonStrikePrices);
-            const allHigher = [...strikePrices, ...nonStrikePrices.filter(p => p > salePrice)];
-            if (allHigher.length > 0) originalPrice = Math.max(...allHigher);
+            // Only use explicitly struck prices as original_price.
+            // Other non-strike prices above salePrice are multi-buy amounts (e.g. "2 for $19.90"),
+            // not "was" prices, so they must not appear as strikethrough.
+            if (strikePrices.length > 0) originalPrice = Math.max(...strikePrices);
         } else {
             salePrice = Math.min(...strikePrices);
             if (strikePrices.length > 1) originalPrice = Math.max(...strikePrices);
