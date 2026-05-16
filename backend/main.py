@@ -1,37 +1,20 @@
 import asyncio
 import json
-import math
-from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from database import get_db, init_db, AsyncSessionLocal
-from models import Store, Product, Price, ScrapedQuery, EmailSignup
+from database import get_db, init_db
+from models import Store, Product, Price, ScrapedQuery
 from scrapers import SCRAPERS
 from browser import get_browser, stop_browser
 
-@asynccontextmanager
-async def lifespan(app):
-    await init_db()
-    await get_browser()
-    async with _session() as db:
-        for s in STORES_SEED:
-            exists = await db.execute(select(Store).where(Store.key == s["key"]))
-            if not exists.scalar_one_or_none():
-                db.add(Store(**s))
-        await db.commit()
-    yield
-    await stop_browser()
-
-
-app = FastAPI(title="Cartly API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Cartly API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,7 +35,25 @@ STORES_SEED = [
 PRICE_TTL_HOURS = 6
 
 
+@app.on_event("startup")
+async def startup():
+    await init_db()
+    await get_browser()  # pre-warm shared Chromium
+    async with _session() as db:
+        for s in STORES_SEED:
+            exists = await db.execute(select(Store).where(Store.key == s["key"]))
+            if not exists.scalar_one_or_none():
+                db.add(Store(**s))
+        await db.commit()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await stop_browser()
+
+
 def _session():
+    from database import AsyncSessionLocal
     return AsyncSessionLocal()
 
 
@@ -68,7 +69,7 @@ async def _upsert_price(db: AsyncSession, store: Store, raw: dict):
     r = await db.execute(
         select(Product).where(func.lower(Product.name) == name_lower.lower())
     )
-    product = r.scalars().first()
+    product = r.scalar_one_or_none()
     if not product:
         product = Product(
             name=name_lower,
@@ -123,6 +124,7 @@ async def _fresh_prices(db: AsyncSession, query: str, since: datetime | None = N
         .where(*[func.lower(Product.name).contains(w) for w in query.lower().split()])
         .order_by(Price.price)
     )
+    import math
     rows = (await db.execute(stmt)).all()
     seen: set[tuple] = set()
     results = []
@@ -148,6 +150,8 @@ async def _query_was_scraped(db: AsyncSession, query: str) -> bool:
 
 
 def _safe_float(v) -> float | None:
+    """Return None for NaN/Inf so json.dumps never raises ValueError."""
+    import math
     if v is None:
         return None
     try:
@@ -198,30 +202,15 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
         scrape_start = datetime.utcnow()
 
         async def run_one(store_key, fn):
-            task = None
             try:
                 browser = await get_browser()
-                task = asyncio.create_task(fn(q, browser=browser))
-                # Shield the task so that a timeout cancels the wait but NOT
-                # the task itself — the task's finally block (ctx.close) runs
-                # in the background without blocking as_completed.
-                return store_key, await asyncio.wait_for(
-                    asyncio.shield(task), timeout=90.0
-                )
-            except asyncio.TimeoutError:
-                print(f"[{store_key}] timeout after 90s")
-                if task:
-                    task.cancel()
-                return store_key, []
+                return store_key, await fn(q, browser=browser)
             except Exception as exc:
                 print(f"[{store_key}] error: {exc}")
-                if task:
-                    task.cancel()
                 return store_key, []
 
         tasks = [asyncio.create_task(run_one(k, fn)) for k, fn in SCRAPERS.items()]
 
-        any_results = False
         for fut in asyncio.as_completed(tasks):
             store_key, results = await fut
             if not results:
@@ -236,19 +225,12 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
                             print(f"[{store_key}] upsert error: {exc}")
                     await db.commit()
                     updated = await _fresh_prices(db, q, since=scrape_start if fresh else None)
-                    store_counts = {}
-                    for r in updated:
-                        store_counts[r.get("store_key", "?")] = store_counts.get(r.get("store_key", "?"), 0) + 1
-                    print(f"[{store_key}] fresh_prices: {len(updated)} total → {store_counts}")
-                    any_results = True
-                    yield _sse({"type": "results", "source": "live", "results": updated})
+            yield _sse({"type": "results", "source": "live", "results": updated})
 
-        # 3. Record this query only if at least one scraper returned results;
-        #    avoids caching an empty result set on network/geo failures
-        if any_results:
-            async with _session() as db:
-                db.add(ScrapedQuery(query=q.lower().strip()))
-                await db.commit()
+        # 3. Record this query so subsequent searches hit cache
+        async with _session() as db:
+            db.add(ScrapedQuery(query=q.lower().strip()))
+            await db.commit()
 
         yield _sse({"type": "done"})
 
@@ -294,21 +276,3 @@ async def list_stores(db: AsyncSession = Depends(get_db)):
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "time": datetime.utcnow().isoformat()}
-
-
-class _AlertSignupBody(BaseModel):
-    email: str
-
-
-@app.post("/api/alerts/signup")
-async def alert_signup(body: _AlertSignupBody, db: AsyncSession = Depends(get_db)):
-    email = body.email.strip().lower()
-    if not email or "@" not in email or "." not in email.split("@")[-1]:
-        raise HTTPException(status_code=400, detail="Invalid email address")
-    await db.execute(
-        pg_insert(EmailSignup.__table__)
-        .values(email=email, signed_up_at=datetime.utcnow())
-        .on_conflict_do_nothing()
-    )
-    await db.commit()
-    return {"ok": True}
