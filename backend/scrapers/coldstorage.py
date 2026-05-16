@@ -129,14 +129,13 @@ async def search_coldstorage(query: str, browser=None) -> list[dict]:
         if "coldstorage.com.sg" not in resp.url or resp.status != 200:
             return
         ct = resp.headers.get("content-type", "")
-        # Capture RSC/JSON/text responses; skip obvious non-data types
-        if any(x in ct for x in ("html",)) and "products" not in resp.url:
+        # Only read RSC/API responses — never JS bundles or HTML pages
+        if not any(x in ct for x in ("x-component", "text/plain", "application/json", "octet-stream")):
             return
         try:
             body = await resp.body()
-            if b'"products"' in body:
-                pending_responses.append(body)
-                rsc_event.set()
+            pending_responses.append(body)
+            rsc_event.set()
         except Exception:
             pass
 
