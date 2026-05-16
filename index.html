@@ -1005,6 +1005,12 @@ function groupByProduct(results) {
     return tokenSim(a.product_name, b.product_name) >= THRESHOLD;
   }
 
+  // Find the dominant store — the one with the most results in this search.
+  // Its naming convention becomes the canonical display name for each product group.
+  const storeCounts = {};
+  results.forEach(r => { storeCounts[r.store_key] = (storeCounts[r.store_key] || 0) + 1; });
+  const dominantStore = Object.keys(storeCounts).reduce((a, b) => storeCounts[a] >= storeCounts[b] ? a : b, '');
+
   const groups = [], assigned = new Set();
   for (let i = 0; i < results.length; i++) {
     if (assigned.has(i)) continue;
@@ -1017,8 +1023,10 @@ function groupByProduct(results) {
       if (items.some(x => x.store_key === r2.store_key)) continue;
       if (isSameProduct(r, r2)) { items.push(r2); assigned.add(j); }
     }
+    // Prefer the dominant store's name; fall back to the first item's name
+    const dominantItem = items.find(x => x.store_key === dominantStore);
     groups.push({
-      displayName: r.product_name,
+      displayName: (dominantItem || r).product_name,
       brand: r.brand || null,
       unit: r.unit || null,
       image: items.find(x => x.image)?.image || '',
