@@ -77,7 +77,7 @@ async def search_redmart(query: str, browser=None) -> list[dict]:
     except Exception as exc:
         print(f"[red] error: {exc}")
     finally:
-        await ctx.close()
+        asyncio.ensure_future(ctx.close())
         if own_browser and _pw:
             await browser.close()
             await _pw.stop()

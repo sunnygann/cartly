@@ -196,7 +196,7 @@ async def search_ntuc(query: str, browser=None) -> list[dict]:
     except Exception as exc:
         print(f"[ntuc] error: {exc}")
     finally:
-        await ctx.close()
+        asyncio.ensure_future(ctx.close())
         if own_browser and _pw:
             await browser.close()
             await _pw.stop()

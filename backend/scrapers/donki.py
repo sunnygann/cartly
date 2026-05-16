@@ -71,7 +71,7 @@ async def search_donki(query: str, browser=None) -> list[dict]:
     except Exception as exc:
         print(f"[donki] error: {exc}")
     finally:
-        await ctx.close()
+        asyncio.ensure_future(ctx.close())
         if own_browser and _pw:
             await browser.close()
             await _pw.stop()
