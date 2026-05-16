@@ -16,6 +16,7 @@ jobs:
           SHA="$(git rev-parse --short HEAD)"
           VERSION="${DATE}.${SHA}"
           sed -i "s/%%VERSION%%/${VERSION}/g" index.html
+          sed -i "s/%%SHA%%/${SHA}/g" index.html
           echo "Version: ${VERSION}"
 
       - name: Deploy to Surge
