@@ -1135,7 +1135,7 @@ function renderResults(query, results) {
   grid.innerHTML = '';
   groups.forEach(group => {
     // Sort: available items by price first, sold-out items at the bottom
-    const available  = group.items.filter(x => x.promo !== 'SOLD OUT').sort((a, b) => a.price - b.price);
+    const available  = group.items.filter(x => x.promo !== 'SOLD OUT').sort((a, b) => a.price - b.price || (b.promo ? 1 : 0) - (a.promo ? 1 : 0));
     const soldOuts   = group.items.filter(x => x.promo === 'SOLD OUT');
     const sortedItems = [...available, ...soldOuts];
 
