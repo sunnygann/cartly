@@ -332,12 +332,14 @@
     .summary-row { display: flex; justify-content: space-between; font-size: .88rem; margin-bottom: .7rem; color: var(--muted); }
     .summary-row.total { color: var(--text); font-weight: 800; font-size: 1rem; border-top: 1px solid var(--border); padding-top: .7rem; margin-top: .3rem; }
     .summary-row.savings { color: var(--green); font-weight: 600; }
+    /* checkout button removed — Cartly is a price comparator, not a checkout tool
     .checkout-btn {
       margin-top: 1.2rem; width: 100%; background: var(--accent); color: #fff;
       border: none; border-radius: 8px; padding: .85rem; font-size: .95rem;
       font-weight: 700; cursor: pointer; transition: opacity .2s; min-height: 44px;
     }
     .checkout-btn:hover { opacity: .85; }
+    */
     .store-split { margin-top: 1.2rem; }
     .store-split h4 { font-size: .8rem; color: var(--muted); margin-bottom: .6rem; text-transform: uppercase; letter-spacing: .05em; }
     .split-row { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; font-size: .85rem; }
@@ -608,11 +610,13 @@
     </div>
 
     <div class="basket-summary">
-      <h3>Order Summary</h3>
+      <h3>Basket Summary</h3>
       <div class="summary-row"><span>Subtotal</span><span id="s-subtotal">$0.00</span></div>
       <div class="summary-row savings"><span>💚 You save vs single store</span><span id="s-savings">$0.00</span></div>
       <div class="summary-row total"><span>Total</span><span id="s-total">$0.00</span></div>
+      <!-- checkout button removed — Cartly is a price comparator, not a checkout tool
       <button class="checkout-btn" onclick="alert('Coming soon! Redirecting to store apps…')">Proceed to Checkout →</button>
+      -->
 
       <div class="store-split">
         <h4>Split by store</h4>
