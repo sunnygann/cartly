@@ -21,9 +21,10 @@ _EXTRACT_JS = r"""() => {
     const strikeSel = 'del,s,strike,[class*="was"],[class*="old-price"],[class*="compare-price"],[class*="strikethrough"]';
     const promoJunk = /add\s+to\s+cart|\d+\.\d+\s*\(\d+\)/i;
     const promoRe = /\d\+\d\s*free|\d-for-\d|\bbuy\s+\d+\s+get\s+\d+|(?:any\s+)?\d+\s+(?:for|@|at)\s+\$[\d.]+/i;
-    const skipImgRe = /campaign|label|banner|sticker|badge|promo|offer|deal|creative|FPGAds/i;
 
     // STEP 1: find product cards using structural signals only.
+    // Do NOT use a global promo list to find cards — that causes promos from
+    // one product to attract ancestors that span multiple products.
     const cards = new Map();
 
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
@@ -35,14 +36,14 @@ _EXTRACT_JS = r"""() => {
         const price = parseFloat(m[1]);
         if (price < 0.10 || price > 999) continue;
 
-        // Walk up to find the smallest ancestor that looks like a product card.
+        // Walk up to find the smallest ancestor that looks like a product card
         let el = node.parentElement;
         let card = null;
         for (let i = 0; i < 14; i++) {
             if (!el || el === document.body) break;
             if (el.querySelector('img') && el.children.length >= 2 && el.children.length <= 15) {
                 card = el;
-                break;
+                break; // smallest matching ancestor = tightest card boundary
             }
             el = el.parentElement;
         }
@@ -59,65 +60,31 @@ _EXTRACT_JS = r"""() => {
         cards.get(card).prices.push({ node, price, insideStrike });
     }
 
-    // STEP 2: build results
+    // STEP 2: build results — find promo WITHIN each card's own subtree
     const results = [];
     for (const [card, data] of cards.entries()) {
         const { prices } = data;
         if (prices.length === 0) continue;
 
-        // Determine sale price and the text node it came from.
-        // saleNode is used below to pick the promo and image closest to THIS price.
-        const nonStrike = prices.filter(p => !p.insideStrike);
-        const struck    = prices.filter(p =>  p.insideStrike);
-
-        let salePrice = null, saleNode = null, originalPrice = null;
-        if (nonStrike.length > 0) {
-            const min = nonStrike.reduce((a, b) => a.price < b.price ? a : b);
-            salePrice = min.price; saleNode = min.node;
-            if (struck.length > 0) originalPrice = Math.max(...struck.map(p => p.price));
-        } else if (struck.length > 0) {
-            const min = struck.reduce((a, b) => a.price < b.price ? a : b);
-            salePrice = min.price; saleNode = min.node;
-            if (struck.length > 1) originalPrice = Math.max(...struck.map(p => p.price));
-        }
-        if (!salePrice) continue;
-
-        // PROMO DETECTION
-        // When a card spans multiple products (e.g. an inline ad followed by a real product),
-        // there may be multiple [data-testid="promo-label"] elements inside.
-        // Use compareDocumentPosition to find the LAST promo-label that precedes saleNode in
-        // DOM order — that is the promo belonging to this specific product, not an earlier one.
+        // Promo detection — three passes:
+        // 1. data-testid="promo-label" inside card
+        // 2. data-testid="promo-label" in parent (badge may sit above the card boundary)
+        // 3. Element-level textContent scan (handles "2 for " + "$19.90" split across nodes)
         let promo = null;
-        const allPromos = Array.from(card.querySelectorAll('[data-testid="promo-label"]'));
-        if (allPromos.length === 1) {
-            const t = allPromos[0].textContent.trim();
-            if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) promo = t;
-        } else if (allPromos.length > 1) {
-            // DOCUMENT_POSITION_FOLLOWING (4): saleNode follows the promo → promo is before price.
-            // Iterate forward and keep overwriting so we end up with the last (closest) match.
-            for (const el of allPromos) {
-                if (el.compareDocumentPosition(saleNode) & 4) {
-                    const t = el.textContent.trim();
-                    if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) promo = t;
-                }
-            }
+        for (const el of card.querySelectorAll('[data-testid="promo-label"]')) {
+            const t = el.textContent.trim();
+            if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) { promo = t; break; }
         }
-        // Pass 2: closest preceding sibling promo label (badge sits above the card boundary)
         if (!promo && card.parentElement) {
-            let sib = card.previousElementSibling;
-            while (sib && !promo) {
-                const candidates = sib.matches('[data-testid="promo-label"]')
-                    ? [sib]
-                    : Array.from(sib.querySelectorAll('[data-testid="promo-label"]'))
-                          .filter(el => el.parentElement === sib);
-                for (const el of candidates) {
+            for (const el of card.parentElement.querySelectorAll('[data-testid="promo-label"]')) {
+                if (card.contains(el)) continue;
+                // Only direct siblings of card, not promos buried in other nested cards
+                if (el.parentElement === card.parentElement) {
                     const t = el.textContent.trim();
                     if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) { promo = t; break; }
                 }
-                sib = sib.previousElementSibling;
             }
         }
-        // Pass 3: textContent scan for multi-buy patterns split across nodes
         if (!promo) {
             for (const el of card.querySelectorAll('span, p, div')) {
                 if (el.children.length > 5) continue;
@@ -126,7 +93,21 @@ _EXTRACT_JS = r"""() => {
             }
         }
 
-        // NAME EXTRACTION
+        let salePrice = null, originalPrice = null;
+        const nonStrikePrices = prices.filter(p => !p.insideStrike).map(p => p.price);
+        const strikePrices = prices.filter(p => p.insideStrike).map(p => p.price);
+
+        if (nonStrikePrices.length > 0) {
+            salePrice = Math.min(...nonStrikePrices);
+            // Only use explicitly struck prices as original_price.
+            // Higher non-struck prices are multi-buy totals or U.P. labels —
+            // they must not appear as strikethrough.
+            if (strikePrices.length > 0) originalPrice = Math.max(...strikePrices);
+        } else {
+            salePrice = Math.min(...strikePrices);
+            if (strikePrices.length > 1) originalPrice = Math.max(...strikePrices);
+        }
+
         let name = '';
         const link = card.querySelector('a[href]');
         if (link && !link.querySelector('img')) {
@@ -147,7 +128,7 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // UNIT EXTRACTION (size often in a separate span on NTUC)
+        // --- UNIT EXTRACTION (size often in a separate span on NTUC) ---
         let unit = '';
         const unitRe = /^\d+(?:\.\d+)?\s*(?:ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|caps?|sachets?)\s*$/i;
         for (const el of card.querySelectorAll('span, p, div')) {
@@ -156,16 +137,11 @@ _EXTRACT_JS = r"""() => {
             if (unitRe.test(t)) { unit = t; break; }
         }
 
-        // IMAGE EXTRACTION
-        // When a card spans multiple products the first image belongs to an earlier product.
-        // Iterate images in REVERSE DOM order and use compareDocumentPosition to find the
-        // closest non-ad image that precedes saleNode — the image for THIS product.
+        // --- IMAGE EXTRACTION (card-scoped, skip campaign/label images) ---
         let image = '';
-        const allImgs = Array.from(card.querySelectorAll('img'));
-        for (let i = allImgs.length - 1; i >= 0; i--) {
-            const img = allImgs[i];
-            // DOCUMENT_POSITION_FOLLOWING (4): saleNode follows img → img is before the price
-            if (!(img.compareDocumentPosition(saleNode) & 4)) continue;
+        const skipImgRe = /campaign|label|banner|sticker|badge|promo|offer|deal/i;
+        for (const img of card.querySelectorAll('img')) {
+            // Next.js lazy images: srcset always has real URLs even when src is a placeholder
             let src = '';
             if (img.srcset) src = img.srcset.split(',')[0].trim().split(/\s+/)[0];
             if (!src && img.dataset.src && !img.dataset.src.startsWith('data:')) src = img.dataset.src;
@@ -173,18 +149,6 @@ _EXTRACT_JS = r"""() => {
             if (!src || skipImgRe.test(src)) continue;
             image = src;
             break;
-        }
-        // Fallback: any non-ad img in card (for cards with only one product)
-        if (!image) {
-            for (const img of allImgs) {
-                let src = '';
-                if (img.srcset) src = img.srcset.split(',')[0].trim().split(/\s+/)[0];
-                if (!src && img.dataset.src && !img.dataset.src.startsWith('data:')) src = img.dataset.src;
-                if (!src && img.src && !img.src.startsWith('data:')) src = img.src;
-                if (!src || skipImgRe.test(src)) continue;
-                image = src;
-                break;
-            }
         }
 
         results.push({
