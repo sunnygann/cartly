@@ -994,10 +994,22 @@ function groupByProduct(results) {
     return img.split('?')[0]; // strip query params before comparing
   }
 
+  // Hard-coded product equivalences — pairs whose distinctive words differ too
+  // much for IDF-weighted Jaccard to catch (e.g. "Original Smoked" vs "Bratwurst").
+  const HARD_EQUIV = [
+    [/\bjohnsonville\b.*\boriginal\b.*\bsmoked\b/i, /\bjohnsonville\b.*\bsmoked\b.*\bbratwurst\b/i],
+  ];
+
   function isSameProduct(a, b) {
     // Gate 0: identical real image URL → definite match (bypasses name checks)
     const imgA = realImageUrl(a.image), imgB = realImageUrl(b.image);
     if (imgA && imgB && imgA === imgB) return true;
+
+    // Hard-coded pairs
+    const nA = a.product_name, nB = b.product_name;
+    for (const [pA, pB] of HARD_EQUIV) {
+      if ((pA.test(nA) && pB.test(nB)) || (pA.test(nB) && pB.test(nA))) return true;
+    }
 
     // Gate 1: brand must match if both known
     const bA = normBrand(a.brand), bB = normBrand(b.brand);
