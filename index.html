@@ -950,8 +950,15 @@ function doSearch() {
   const q = document.getElementById('search-input').value.trim();
   if (!q) return;
 
-  // Close any in-flight stream
-  if (_activeSource) { _activeSource.close(); _activeSource = null; }
+  // Cancel any in-flight stream and immediately remove its progress badge
+  if (_activeSource) {
+    _activeSource.close();
+    _activeSource = null;
+    clearInterval(_countdownInterval);
+    _countdownInterval = null;
+    const oldBadge = document.getElementById('stream-badge');
+    if (oldBadge) oldBadge.remove();
+  }
 
   const section = document.getElementById('results-section');
   const grid    = document.getElementById('price-grid');
