@@ -204,6 +204,8 @@ async def search_ntuc(query: str) -> list[dict]:
             await browser.close()
 
     print(f"[ntuc] DOM extracted {len(raw)} price nodes")
+    for _r in raw:
+        print(f"[ntuc] raw: name={(_r.get('name',''))[:60]!r} price={_r.get('price')} orig={_r.get('original_price')} promo={_r.get('promo')} unit={_r.get('unit')} img={(_r.get('image',''))[:60]!r}")
 
     import re
     def clean_name(n: str) -> str:
