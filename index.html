@@ -998,6 +998,7 @@ function groupByProduct(results) {
   // much for IDF-weighted Jaccard to catch (e.g. "Original Smoked" vs "Bratwurst").
   const HARD_EQUIV = [
     [/\bjohnsonville\b.*\boriginal\b.*\bsmoked\b/i, /\bjohnsonville\b.*\bsmoked\b.*\bbratwurst\b/i],
+    [/\bjohnsonville\b.*\bbrats?\b.*\bsmoked\b/i,   /\bjohnsonville\b.*\bsmoked\b.*\bbratwurst\b/i],
   ];
 
   function isSameProduct(a, b) {
