@@ -441,70 +441,95 @@
       0%, 80%, 100% { transform: scale(0); opacity: 0; }
       40%           { transform: scale(1); opacity: 1; }
     }
-    @keyframes badge-progress {
-      from { width: 0%; }
-      to   { width: 100%; }
-    }
     #stream-badge {
       position: fixed;
       bottom: 1.5rem;
       left: 50%;
       transform: translateX(-50%);
-      background: #111;
+      background: #0f0f0f;
       color: #fff;
-      padding: .65rem 1.1rem .55rem;
-      border-radius: 14px;
-      font-size: .82rem;
-      font-weight: 600;
-      letter-spacing: .01em;
+      padding: .85rem 1.15rem .8rem;
+      border-radius: 18px;
+      font-size: .8rem;
+      font-weight: 500;
       display: flex;
       flex-direction: column;
-      gap: .45rem;
-      box-shadow: 0 4px 20px rgba(0,0,0,.3);
+      gap: .55rem;
+      box-shadow: 0 6px 28px rgba(0,0,0,.45);
       z-index: 999;
-      min-width: 240px;
+      min-width: 270px;
+      border: 1px solid rgba(255,255,255,.07);
     }
-    .badge-top {
-      display: flex; align-items: center; gap: .5rem;
+    .badge-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+      font-size: .83rem;
     }
     .badge-eta {
-      margin-left: auto;
-      font-size: .72rem;
-      font-weight: 500;
-      color: rgba(255,255,255,.45);
-      font-variant-numeric: tabular-nums;
-    }
-    .badge-stores {
       font-size: .7rem;
       font-weight: 500;
-      color: rgba(255,255,255,.45);
+      color: rgba(255,255,255,.38);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: .01em;
+    }
+    .badge-store-list {
+      display: flex;
+      flex-direction: column;
+      gap: .28rem;
+    }
+    .badge-store-row {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      font-size: .74rem;
+    }
+    .badge-store-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      opacity: .45;
+      transition: opacity .3s;
+    }
+    .badge-store-dot.done { opacity: 1; }
+    .badge-store-name {
+      flex: 1;
+      color: rgba(255,255,255,.55);
+      transition: color .3s;
+    }
+    .badge-store-name.done { color: rgba(255,255,255,.85); }
+    .badge-store-status {
+      font-size: .68rem;
+      color: rgba(255,255,255,.28);
+      font-style: italic;
+    }
+    .badge-store-status.done {
+      color: #12b76a;
+      font-style: normal;
+      font-weight: 600;
     }
     .badge-bar-track {
-      width: 100%; height: 3px;
-      background: rgba(255,255,255,.1);
+      width: 100%; height: 2.5px;
+      background: rgba(255,255,255,.08);
       border-radius: 999px;
       overflow: hidden;
+      margin-top: .1rem;
     }
     .badge-bar-fill {
       height: 100%;
       background: var(--accent);
       border-radius: 999px;
       width: 0%;
-    }
-    .badge-bar-fill.running {
-      animation: badge-progress var(--badge-duration, 25s) linear forwards;
-    }
-    .badge-bar-fill.done {
-      animation: none;
-      width: 100%;
-      transition: width .25s ease;
+      transition: width .45s cubic-bezier(.4,0,.2,1);
     }
     #stream-badge .dots span {
       display: inline-block;
-      width: 5px; height: 5px;
+      width: 4px; height: 4px;
       border-radius: 50%;
       background: var(--accent);
-      margin: 0 1px;
+      margin: 0 1.5px;
+      vertical-align: middle;
       animation: cartly-dot 1.2s ease-in-out infinite;
     }
     #stream-badge .dots span:nth-child(2) { animation-delay: .2s; }
@@ -796,7 +821,16 @@ document.querySelectorAll('.store-chip[data-store]').forEach(el => {
 let _lastResults = [], _lastQuery = '';
 let _storesSeen = new Set();
 let _countdownInterval = null;
-const _SCRAPER_EXPECTED_S = 25; // expected worst-case (CS with 4 pages)
+let _searchStart = 0;
+
+// Per-store expected scrape time (seconds) — drives ETA prediction
+const _SCRAPER_STORES = [
+  { key: 'ntuc',  name: 'NTUC FairPrice', color: '#e8231a', expectedS: 15 },
+  { key: 'cold',  name: 'Cold Storage',   color: '#0066cc', expectedS: 22 },
+  { key: 'sheng', name: 'Sheng Siong',    color: '#2ecc71', expectedS: 12 },
+  { key: 'red',   name: 'RedMart',        color: '#e84393', expectedS: 14 },
+  { key: 'donki', name: 'Don Don Donki',  color: '#e60012', expectedS: 14 },
+];
 
 // ── STATE ── //
 let basket    = [];
@@ -828,37 +862,67 @@ function _setSearching(on) {
   if (on) {
     if (!badge) {
       _storesSeen = new Set();
+      _searchStart = Date.now();
       badge = document.createElement('div');
       badge.id = 'stream-badge';
-      badge.style.setProperty('--badge-duration', `${_SCRAPER_EXPECTED_S}s`);
+      const maxExpected = Math.max(..._SCRAPER_STORES.map(s => s.expectedS));
       badge.innerHTML = `
-        <div class="badge-top">
-          Searching stores
-          <span class="dots"><span></span><span></span><span></span></span>
-          <span class="badge-eta" id="badge-eta">~${_SCRAPER_EXPECTED_S}s</span>
+        <div class="badge-header">
+          <span>Checking prices&nbsp;<span class="dots"><span></span><span></span><span></span></span></span>
+          <span class="badge-eta" id="badge-eta">~${maxExpected}s</span>
         </div>
-        <div class="badge-stores" id="badge-stores"></div>
-        <div class="badge-bar-track"><div class="badge-bar-fill running" id="badge-bar-fill"></div></div>`;
+        <div class="badge-store-list">
+          ${_SCRAPER_STORES.map(s => `
+            <div class="badge-store-row">
+              <span class="badge-store-dot" id="bdot-${s.key}" style="background:${s.color}"></span>
+              <span class="badge-store-name" id="bname-${s.key}">${s.name}</span>
+              <span class="badge-store-status" id="bstat-${s.key}">searching…</span>
+            </div>`).join('')}
+        </div>
+        <div class="badge-bar-track"><div class="badge-bar-fill" id="badge-bar-fill"></div></div>`;
       document.body.appendChild(badge);
 
-      const start = Date.now();
       _countdownInterval = setInterval(() => {
-        const remaining = Math.max(0, _SCRAPER_EXPECTED_S - Math.floor((Date.now() - start) / 1000));
+        const elapsedS = (Date.now() - _searchStart) / 1000;
+        const pending = _SCRAPER_STORES.filter(s => !_storesSeen.has(s.key));
+        const remaining = Math.max(0, ...pending.map(s => s.expectedS - elapsedS));
         const eta = document.getElementById('badge-eta');
-        if (eta) eta.textContent = remaining > 0 ? `~${remaining}s` : 'almost done…';
-      }, 500);
+        if (eta) eta.textContent = remaining > 0.5 ? `~${Math.ceil(remaining)}s` : 'almost done…';
+      }, 400);
     }
   } else {
     clearInterval(_countdownInterval);
     _countdownInterval = null;
     if (badge) {
+      // Mark any still-pending stores as done
+      _SCRAPER_STORES.forEach(s => {
+        if (!_storesSeen.has(s.key)) _markStoreDone(s.key, null);
+      });
       const fill = document.getElementById('badge-bar-fill');
       const eta  = document.getElementById('badge-eta');
-      if (fill) { fill.classList.remove('running'); fill.classList.add('done'); }
-      if (eta)  eta.textContent = 'done';
-      setTimeout(() => badge.remove(), 900);
+      if (fill) fill.style.width = '100%';
+      if (eta)  eta.textContent = 'done ✓';
+      setTimeout(() => badge.remove(), 1100);
     }
   }
+}
+
+function _markStoreDone(key, count) {
+  const dot  = document.getElementById(`bdot-${key}`);
+  const name = document.getElementById(`bname-${key}`);
+  const stat = document.getElementById(`bstat-${key}`);
+  if (dot)  dot.classList.add('done');
+  if (name) name.classList.add('done');
+  if (stat) {
+    stat.classList.add('done');
+    stat.textContent = count !== null
+      ? (count > 0 ? `${count} result${count !== 1 ? 's' : ''}` : 'no results')
+      : 'done';
+  }
+  // Advance progress bar proportionally to stores completed
+  const doneCount = _SCRAPER_STORES.filter(s => _storesSeen.has(s.key)).length;
+  const fill = document.getElementById('badge-bar-fill');
+  if (fill) fill.style.width = `${Math.round((doneCount / _SCRAPER_STORES.length) * 100)}%`;
 }
 
 function doSearch() {
@@ -891,12 +955,16 @@ function doSearch() {
         renderResults(q, msg.results);
       }
       if (msg.source === 'live') {
-        // Track which stores have now returned results
-        msg.results.forEach(r => _storesSeen.add(r.store_name));
-        const storesEl = document.getElementById('badge-stores');
-        if (storesEl && _storesSeen.size > 0) {
-          storesEl.textContent = [..._storesSeen].join(' · ') + ' ✓';
-        }
+        // Count results per store in the full result set
+        const storeCounts = {};
+        msg.results.forEach(r => { storeCounts[r.store_key] = (storeCounts[r.store_key] || 0) + 1; });
+        // Detect newly responded stores and mark them done in the badge
+        Object.keys(storeCounts).forEach(key => {
+          if (!_storesSeen.has(key)) {
+            _storesSeen.add(key);
+            _markStoreDone(key, storeCounts[key]);
+          }
+        });
       }
     } else if (msg.type === 'done') {
       source.close();
