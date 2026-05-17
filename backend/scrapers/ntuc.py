@@ -185,22 +185,19 @@ async def search_ntuc(query: str) -> list[dict]:
                 await page.wait_for_load_state("networkidle", timeout=1_000)
             except Exception:
                 pass
-            # Multi-pass adaptive scroll: each pass scrolls the full page slowly so
-            # intersection observers fire and lazy-rendered products appear. Repeats
-            # until scrollHeight stops growing for 2 consecutive passes (up to 20 passes).
+            # Scroll to the bottom in jumps, waiting after each jump for NTUC's API
+            # to fetch and render the next product batch. Stop when scrollHeight has
+            # not grown for 2 consecutive waits (all batches loaded).
+            # Do NOT scroll back to top — keeps all loaded DOM nodes in place for extraction.
             await page.evaluate("""async () => {
                 const delay = ms => new Promise(r => setTimeout(r, ms));
                 let stable = 0;
-                for (let pass = 0; pass < 20 && stable < 2; pass++) {
+                for (let i = 0; i < 10 && stable < 2; i++) {
                     const before = document.body.scrollHeight;
-                    for (let y = 200; y <= document.body.scrollHeight + 200; y += 280) {
-                        window.scrollTo(0, y);
-                        await delay(100);
-                    }
-                    await delay(1500);
-                    stable = document.body.scrollHeight === before ? stable + 1 : 0;
+                    window.scrollTo(0, before + 2000);
+                    await delay(1800);
+                    stable = document.body.scrollHeight > before ? 0 : stable + 1;
                 }
-                window.scrollTo(0, 0);
             }""")
             await asyncio.sleep(0.4)
             title = await page.title()
