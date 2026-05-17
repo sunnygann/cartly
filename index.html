@@ -1132,10 +1132,31 @@ function renderResults(query, results) {
     g.items.forEach(x => { maxPriceCache[x.product_id] = maxP; });
   });
 
+  // Count results per store for tiebreaker: more results = store has broader selection
+  const storeResultCount = {};
+  for (const r of filtered) storeResultCount[r.store_key] = (storeResultCount[r.store_key] || 0) + 1;
+
+  // Parse "N for $X" promo strings into per-unit price; returns item price if unparseable
+  function promoPerUnit(promo, price) {
+    if (!promo) return price;
+    const m = promo.match(/(\d+)\s+for\s+\$?([\d.]+)/i);
+    return m ? parseFloat(m[2]) / parseInt(m[1]) : price;
+  }
+
   grid.innerHTML = '';
   groups.forEach(group => {
-    // Sort: available items by price first, sold-out items at the bottom
-    const available  = group.items.filter(x => x.promo !== 'SOLD OUT').sort((a, b) => a.price - b.price || (b.promo ? 1 : 0) - (a.promo ? 1 : 0));
+    // Sort: available items by price first, sold-out items at the bottom.
+    // Price ties broken by: (1) has promo, (2) better per-unit deal, (3) store breadth.
+    const available  = group.items.filter(x => x.promo !== 'SOLD OUT').sort((a, b) => {
+      if (a.price !== b.price) return a.price - b.price;
+      const aP = !!a.promo, bP = !!b.promo;
+      if (aP !== bP) return bP ? 1 : -1;
+      if (aP && bP) {
+        const diff = promoPerUnit(a.promo, a.price) - promoPerUnit(b.promo, b.price);
+        if (Math.abs(diff) > 0.001) return diff;
+      }
+      return (storeResultCount[b.store_key] || 0) - (storeResultCount[a.store_key] || 0);
+    });
     const soldOuts   = group.items.filter(x => x.promo === 'SOLD OUT');
     const sortedItems = [...available, ...soldOuts];
 
