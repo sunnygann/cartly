@@ -76,13 +76,19 @@ _EXTRACT_JS = r"""() => {
             if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) { promo = t; break; }
         }
         if (!promo && card.parentElement) {
-            for (const el of card.parentElement.querySelectorAll('[data-testid="promo-label"]')) {
-                if (card.contains(el)) continue;
-                // Only direct siblings of card, not promos buried in other nested cards
-                if (el.parentElement === card.parentElement) {
+            // Walk backwards through siblings to find the closest preceding promo label.
+            // Forward iteration picks up promos from earlier (unrelated) ad cards first.
+            let sib = card.previousElementSibling;
+            while (sib && !promo) {
+                const candidates = sib.matches('[data-testid="promo-label"]')
+                    ? [sib]
+                    : Array.from(sib.querySelectorAll('[data-testid="promo-label"]'))
+                          .filter(el => el.parentElement === sib);
+                for (const el of candidates) {
                     const t = el.textContent.trim();
                     if (t.length > 3 && t.length < 80 && !promoJunk.test(t)) { promo = t; break; }
                 }
+                sib = sib.previousElementSibling;
             }
         }
         if (!promo) {

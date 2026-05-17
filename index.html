@@ -274,7 +274,7 @@
     .pg-add:hover { background: rgba(18,183,106,.2); border-color: var(--accent); }
 
     /* on very small screens, badge disappears to make room */
-    @media (max-width: 400px) {
+    @media (max-width: 360px) {
       .pg-badge { display: none; }
       .pg-row { grid-template-columns: 7px 1fr auto auto; }
       /* sold-out badge must stay visible — it's the only status indicator */
@@ -416,7 +416,7 @@
     }
 
     /* fix #9: drop badge on very narrow cards to prevent pg-row grid from squeezing */
-    @media (max-width: 400px) {
+    @media (max-width: 360px) {
       .pg-badge { display: none; }
       .pg-row { grid-template-columns: 8px 1fr auto auto; }
       .pg-row-sold-out .pg-badge-sold-out { display: inline-flex; }
