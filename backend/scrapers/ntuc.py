@@ -185,15 +185,24 @@ async def search_ntuc(query: str) -> list[dict]:
                 await page.wait_for_load_state("networkidle", timeout=1_000)
             except Exception:
                 pass
-            # Scroll through the page so intersection observers fire and lazy img.src
-            # values get replaced with real URLs before we extract.
+            # Multi-pass adaptive scroll: each pass scrolls the full page slowly so
+            # intersection observers fire and lazy-rendered products appear. Repeats
+            # until scrollHeight stops growing for 2 consecutive passes (up to 20 passes).
             await page.evaluate("""async () => {
                 const delay = ms => new Promise(r => setTimeout(r, ms));
-                const h = document.body.scrollHeight;
-                for (let y = 300; y < h; y += 400) { window.scrollTo(0, y); await delay(40); }
+                let stable = 0;
+                for (let pass = 0; pass < 20 && stable < 2; pass++) {
+                    const before = document.body.scrollHeight;
+                    for (let y = 200; y <= document.body.scrollHeight + 200; y += 280) {
+                        window.scrollTo(0, y);
+                        await delay(100);
+                    }
+                    await delay(1500);
+                    stable = document.body.scrollHeight === before ? stable + 1 : 0;
+                }
                 window.scrollTo(0, 0);
             }""")
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.4)
             title = await page.title()
             print(f"[ntuc] loaded: {title}")
             raw = await page.evaluate(_EXTRACT_JS)
