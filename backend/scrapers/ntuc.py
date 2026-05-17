@@ -237,16 +237,43 @@ async def search_ntuc(query: str) -> list[dict]:
             "scraped_at":     datetime.utcnow(),
         })
 
-    # Deduplicate by name — first occurrence wins; later duplicates are misattributed
-    # cards (headless browser sometimes assigns a wrong card boundary to a price node,
-    # producing a duplicate entry with the same name but wrong price/image).
-    seen: set[str] = set()
-    deduped = []
+    def _promo_consistent(price: float, promo) -> bool:
+        """Return False if a 'N for $X' promo is mathematically impossible at this unit price."""
+        if not promo:
+            return True
+        m = re.search(r'(\d+)\s+for\s+\$?([\d.]+)', promo, re.IGNORECASE)
+        if m:
+            n, total = int(m.group(1)), float(m.group(2))
+            if n < 1 or total <= 0:
+                return False
+            implied = total / n
+            return abs(implied - price) / max(implied, price) <= 0.15
+        return True
+
+    # Deduplicate by name. The headless browser sometimes assigns a wrong card
+    # boundary, producing a duplicate entry with the same name but wrong data.
+    # When both exist, prefer the entry whose promo is mathematically consistent
+    # with its price (e.g. reject "$2.30 + 6 for $53.00" in favour of the real one).
+    seen: dict[str, int] = {}
+    deduped: list[dict] = []
     for p in products:
         key = p["name"].lower()
         if key not in seen:
-            seen.add(key)
+            seen[key] = len(deduped)
             deduped.append(p)
+        else:
+            idx = seen[key]
+            existing = deduped[idx]
+            if not _promo_consistent(existing["price"], existing["promo"]) and \
+               _promo_consistent(p["price"], p["promo"]):
+                deduped[idx] = p  # swap to the coherent entry
+
+    # Clear any surviving promo that is still inconsistent with its unit price
+    for p in deduped:
+        if not _promo_consistent(p["price"], p["promo"]):
+            print(f"[ntuc] clearing inconsistent promo {p['promo']!r} for {p['name']!r} at ${p['price']}")
+            p["promo"] = None
+
     products = deduped
 
     print(f"[ntuc] parsed {len(products)} products")
