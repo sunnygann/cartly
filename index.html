@@ -610,7 +610,7 @@
     </div>
 
     <div class="basket-summary">
-      <h3>Basket Summary</h3>
+      <h3>Shopping Plan</h3>
       <div class="summary-row"><span>Subtotal</span><span id="s-subtotal">$0.00</span></div>
       <div class="summary-row savings"><span>💚 You save vs single store</span><span id="s-savings">$0.00</span></div>
       <div class="summary-row total"><span>Total</span><span id="s-total">$0.00</span></div>
@@ -965,9 +965,12 @@ function groupByProduct(results) {
   // --- Gate 3: IDF-weighted token similarity on qty-stripped name ---
   const QTY_STRIP = /\b\d+(?:\.\d+)?\s*(?:[xX×]\s*\d+(?:\.\d+)?\s*)?(?:ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|caps?|sachets?)\b/gi;
 
+  // Canonical synonym map — "brats" is the abbreviation of "bratwurst"
+  const SYNONYMS = { brats: 'bratwurst' };
   function kws(name) {
     return name.replace(QTY_STRIP, ' ').toLowerCase().replace(/[^a-z0-9\s]/g,' ')
-      .split(/\s+/).filter(w => w.length > 1 && !STOP.has(w));
+      .split(/\s+/).filter(w => w.length > 1 && !STOP.has(w))
+      .map(w => SYNONYMS[w] || w);
   }
 
   const freq = {};
