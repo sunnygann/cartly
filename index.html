@@ -879,6 +879,7 @@ function doSearch() {
   _lastResults = [];
 
   const fresh  = document.getElementById('fresh-check').checked;
+  _setSearching(true);
   const source = new EventSource(`${API}/api/search?q=${encodeURIComponent(q)}${fresh ? '&fresh=1' : ''}`);
   _activeSource = source;
 
@@ -888,7 +889,6 @@ function doSearch() {
       _lastResults = msg.results;
       if (msg.results.length > 0) {
         renderResults(q, msg.results);
-        _setSearching(true);
       }
       if (msg.source === 'live') {
         // Track which stores have now returned results
