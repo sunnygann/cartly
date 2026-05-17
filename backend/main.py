@@ -209,14 +209,15 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
                 continue
             async with _session() as db:
                 store = await _get_store(db, store_key)
-                if store:
-                    for raw in results:
-                        try:
-                            await _upsert_price(db, store, raw)
-                        except Exception as exc:
-                            print(f"[{store_key}] upsert error: {exc}")
-                    await db.commit()
-                    updated = await _fresh_prices(db, q, since=scrape_start if fresh else None)
+                if not store:
+                    continue
+                for raw in results:
+                    try:
+                        await _upsert_price(db, store, raw)
+                    except Exception as exc:
+                        print(f"[{store_key}] upsert error: {exc}")
+                await db.commit()
+                updated = await _fresh_prices(db, q, since=scrape_start if fresh else None)
             yield _sse({"type": "results", "source": "live", "results": updated})
 
         # 3. Record this query so subsequent searches hit cache
