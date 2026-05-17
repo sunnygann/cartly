@@ -223,9 +223,30 @@
       background: var(--mid); border: 1px solid var(--border);
       border-radius: 12px; padding: 1rem; position: relative;
       transition: transform .2s, border-color .2s;
+      animation: cardIn .32s ease both;
     }
     .price-card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.15); }
     .price-card.multi-store { border-color: rgba(18,183,106,.35); }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    /* Skeleton shimmer */
+    .skel-card {
+      background: var(--mid); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1rem;
+      animation: cardIn .32s ease both;
+    }
+    .skel-line {
+      border-radius: 6px;
+      background: linear-gradient(90deg, var(--border) 25%, var(--mid) 50%, var(--border) 75%);
+      background-size: 300% 100%;
+      animation: shimmer 1.6s infinite;
+    }
+    @keyframes shimmer {
+      0%   { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
 
     /* Product header: image + name + meta */
     .pg-header { display: flex; align-items: flex-start; gap: .65rem; margin-bottom: .75rem; }
@@ -936,11 +957,24 @@ function doSearch() {
   const grid    = document.getElementById('price-grid');
   section.style.display = 'block';
   document.getElementById('result-label').textContent = q;
-  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--muted)">Searching…</div>';
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   _lastQuery   = q;
   _lastResults = [];
+
+  // Show skeleton cards immediately so grid isn't blank while scrapers run
+  grid.innerHTML = Array.from({length: 6}, (_, i) => `
+    <div class="skel-card" style="animation-delay:${i*55}ms">
+      <div style="display:flex;gap:.65rem;align-items:center;margin-bottom:.85rem">
+        <div class="skel-line" style="width:62px;height:62px;border-radius:8px;flex-shrink:0"></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:.45rem">
+          <div class="skel-line" style="height:13px;width:70%"></div>
+          <div class="skel-line" style="height:11px;width:40%"></div>
+        </div>
+      </div>
+      <div class="skel-line" style="height:44px;border-radius:8px;margin-bottom:.5rem"></div>
+      <div class="skel-line" style="height:44px;border-radius:8px;width:85%"></div>
+    </div>`).join('');
 
   const fresh  = document.getElementById('fresh-check').checked;
   _setSearching(true);
@@ -1226,7 +1260,7 @@ function renderResults(query, results) {
   }
 
   grid.innerHTML = '';
-  groups.forEach(group => {
+  groups.forEach((group, cardIdx) => {
     // Sort: available items by price first, sold-out items at the bottom.
     // Price ties broken by: (1) has promo, (2) better per-unit deal, (3) store breadth.
     const available  = group.items.filter(x => x.promo !== 'SOLD OUT').sort((a, b) => {
@@ -1255,6 +1289,7 @@ const { clean, sub: parsedSub } = extractMeta(cleanRaw);
 
     const card = document.createElement('div');
     card.className = 'price-card' + (isMulti && !allSoldOut ? ' multi-store' : '');
+    card.style.animationDelay = `${Math.min(cardIdx * 45, 500)}ms`;
 
     const rows = sortedItems.map((item, i) => {
       const isSoldOut  = item.promo === 'SOLD OUT';
