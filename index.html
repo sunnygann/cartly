@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Cartly</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90' font-family='Segoe UI,system-ui,sans-serif' font-weight='800' fill='%2312b76a'>C</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90' font-family='Inter,Segoe UI,system-ui,sans-serif' font-weight='800' fill='%2312b76a'>C</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -23,6 +26,8 @@
       --giant:  #f5a623;
       --cold:   #0066cc;
       --sheng:  #2ecc71;
+      --amazon: #ff9900;
+      --grab:   #00b14f;
       --nav-bg:     rgba(249,250,251,0.92);
       --drawer-bg:  rgba(249,250,251,0.98);
       --hero-glow:  #dcfce7;
@@ -48,11 +53,15 @@
     html { scroll-behavior: smooth; }
 
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
       background: var(--dark);
       color: var(--text);
       min-height: 100vh;
       overflow-x: hidden; /* fix #14: guard against any child overflow creating page-wide scroll */
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
     }
 
     /* ── NAV ── */
@@ -138,7 +147,7 @@
     }
     h1 {
       font-size: clamp(2rem, 5vw, 3.2rem);
-      font-weight: 900; line-height: 1.15;
+      font-weight: 800; line-height: 1.15; letter-spacing: -0.02em;
       max-width: 700px; margin-bottom: 1rem;
     }
     h1 em { color: var(--accent); font-style: normal; }
@@ -617,6 +626,8 @@
   <div class="store-chip active" data-store="sheng" onclick="toggleStore(this)"><span class="dot" style="background:#2ecc71"></span> Sheng Siong</div>
   <div class="store-chip active" data-store="red" onclick="toggleStore(this)"><span class="dot" style="background:#e84393"></span> RedMart</div>
   <div class="store-chip active" data-store="donki" onclick="toggleStore(this)"><span class="dot" style="background:#e60012"></span> Don Don Donki</div>
+  <div class="store-chip inactive" data-store="amazon" style="pointer-events:none"><span class="dot" style="background:#ff9900"></span> Amazon Fresh <span class="chip-soon">soon</span></div>
+  <div class="store-chip inactive" data-store="grab" style="pointer-events:none"><span class="dot" style="background:#00b14f"></span> GrabMart <span class="chip-soon">soon</span></div>
 </div>
 
 <!-- ── RESULTS ── -->
@@ -810,7 +821,7 @@ const API = window.location.hostname === 'localhost'
 })();
 
 // ── STORE FILTER ── //
-const _defaultStores = ['ntuc','cold','sheng','red','donki'];
+const _defaultStores = ['ntuc','cold','sheng','red','donki','amazon','grab'];
 let selectedStores = new Set(JSON.parse(localStorage.getItem('cartly_stores') || JSON.stringify(_defaultStores)));
 
 function toggleStore(el) {
@@ -846,11 +857,13 @@ let _searchStart = 0;
 
 // Per-store expected scrape time (seconds) — drives ETA prediction
 const _SCRAPER_STORES = [
-  { key: 'ntuc',  name: 'NTUC FairPrice', color: '#e8231a', expectedS: 15 },
-  { key: 'cold',  name: 'Cold Storage',   color: '#0066cc', expectedS: 22 },
-  { key: 'sheng', name: 'Sheng Siong',    color: '#2ecc71', expectedS: 12 },
-  { key: 'red',   name: 'RedMart',        color: '#e84393', expectedS: 14 },
-  { key: 'donki', name: 'Don Don Donki',  color: '#e60012', expectedS: 14 },
+  { key: 'ntuc',   name: 'NTUC FairPrice', color: '#e8231a', expectedS: 15 },
+  { key: 'cold',   name: 'Cold Storage',   color: '#0066cc', expectedS: 22 },
+  { key: 'sheng',  name: 'Sheng Siong',    color: '#2ecc71', expectedS: 12 },
+  { key: 'red',    name: 'RedMart',        color: '#e84393', expectedS: 14 },
+  { key: 'donki',  name: 'Don Don Donki',  color: '#e60012', expectedS: 14 },
+  { key: 'amazon', name: 'Amazon Fresh',   color: '#ff9900', expectedS: 20 },
+  { key: 'grab',   name: 'GrabMart',       color: '#00b14f', expectedS: 18 },
 ];
 
 // ── STATE ── //

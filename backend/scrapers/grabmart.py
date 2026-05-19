@@ -1,10 +1,13 @@
 """
-Sheng Siong scraper — DOM card extraction.
+GrabMart (mart.grab.com) scraper.
+GrabMart's web app is SPA-heavy and location-gated.  We skip the location
+prompt by trying direct search URLs first; if the page loads products, we
+extract them with a card-boundary JS sweep identical in principle to the
+NTUC/Sheng Siong scrapers.
 """
 import asyncio
 import re
 from datetime import datetime
-from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
 from ._base import block_resources
 
@@ -14,13 +17,19 @@ _UA = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
-_EXTRACT_JS = r"""() => {
-    const priceRe  = /^\$?\s*(\d+\.\d{2})$/;
-    const strikeSel = 'del,s,strike,[class*="was" i],[class*="original" i],[class*="old-price" i],[class*="before" i],[class*="compare" i],[class*="regular" i]';
-    const unitRe   = /^\d+(?:\.\d+)?\s*(?:ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|caps?|sachets?)\s*$|^\d+\s*x\s*\d+(?:\.\d+)?\s*(?:ml|l|kg|g)\s*$/i;
-    const promoRe  = /buy\s*\d+.*?(?:for|get)\s*[\$\d]|\d+\s+for\s+\$[\d.]+|any\s+\d+.*?\$[\d.]+/i;
+# Try search URLs in order; stop at the first that yields products
+_SEARCH_URLS = [
+    "https://mart.grab.com/sg/en/search?query={}",
+    "https://mart.grab.com/sg/en/search/{}",
+    "https://mart.grab.com/sg/en?q={}",
+]
 
-    // Walk all text nodes, find $X.XX prices, climb to tightest card ancestor
+_EXTRACT_JS = r"""() => {
+    const priceRe   = /^\$?\s*(\d+\.\d{2})$/;
+    const strikeSel = 'del,s,strike,[class*="was" i],[class*="original" i],[class*="old" i],[class*="compare" i],[class*="regular" i]';
+    const unitRe    = /^\d+(?:\.\d+)?\s*(?:ml|l|kg|g|oz|lb|pcs?|pieces?|pk|pack|tabs?|sachets?)\s*$|^\d+\s*x\s*\d+(?:\.\d+)?\s*(?:ml|l|kg|g)\s*$/i;
+    const promoRe   = /buy\s*\d+.*?(?:for|get)\s*[\$\d]|\d+\s+for\s+\$[\d.]+|\d+%\s*off/i;
+
     const cardMap = new Map();
     const iter = document.createNodeIterator(document.body, NodeFilter.SHOW_TEXT);
     let node;
@@ -59,8 +68,8 @@ _EXTRACT_JS = r"""() => {
         const { prices } = data;
         if (!prices.length) continue;
 
-        const struckPrices  = prices.filter(p => p.isStruck).map(p => p.price);
-        const normalPrices  = prices.filter(p => !p.isStruck).map(p => p.price);
+        const struckPrices = prices.filter(p => p.isStruck).map(p => p.price);
+        const normalPrices = prices.filter(p => !p.isStruck).map(p => p.price);
 
         let salePrice, origPrice = null;
         if (normalPrices.length > 0) {
@@ -72,7 +81,7 @@ _EXTRACT_JS = r"""() => {
         }
         if (!salePrice || salePrice < 0.10) continue;
 
-        // Name: prefer [class*=name/title] elements first, then longest qualifying leaf
+        // Name
         let name = '';
         for (const sel of ['[class*="name" i]', '[class*="title" i]', 'h1', 'h2', 'h3', 'h4']) {
             for (const el of card.querySelectorAll(sel)) {
@@ -95,7 +104,7 @@ _EXTRACT_JS = r"""() => {
         }
         if (!name) continue;
 
-        // Unit: dedicated size element first, then extract from name
+        // Unit
         let unit = '';
         for (const el of card.querySelectorAll('span, p, small, div')) {
             if (el.children.length > 0) continue;
@@ -103,27 +112,27 @@ _EXTRACT_JS = r"""() => {
             if (unitRe.test(t)) { unit = t; break; }
         }
         if (!unit) {
-            const sm = name.match(/\b(\d+(?:\.\d+)?\s*(?:ml|l|kg|g)(?:\s*x\s*\d+(?:\.\d+)?\s*(?:ml|l|kg|g))?)\b/i);
+            const sm = name.match(/\b(\d+(?:\.\d+)?\s*(?:ml|l|kg|g))\b/i);
             if (sm) unit = sm[0].trim();
         }
 
-        // Promo label
+        // Promo
         let promo = null;
         for (const el of card.querySelectorAll('span, div, p')) {
             if (el.children.length > 3) continue;
             const t = el.textContent.trim();
             if (promoRe.test(t) && t.length < 60) { promo = t; break; }
         }
-        if (/sold\s*out/i.test(card.textContent)) promo = 'SOLD OUT';
+        if (/sold\s*out|unavailable/i.test(card.textContent)) promo = 'SOLD OUT';
 
-        // Image (srcset → data-src → src, skip placeholders)
+        // Image
         let image = '';
         for (const img of card.querySelectorAll('img')) {
             let src = '';
             if (img.srcset) src = img.srcset.split(',')[0].trim().split(/\s+/)[0];
             if (!src && img.dataset.src && !img.dataset.src.startsWith('data:')) src = img.dataset.src;
             if (!src && img.src && !img.src.startsWith('data:')) src = img.src;
-            if (src && !/icon|logo|badge|promo|label|placeholder/i.test(src)) { image = src; break; }
+            if (src && !/icon|logo|badge|promo|placeholder/i.test(src)) { image = src; break; }
         }
 
         results.push({ name, price: salePrice, original_price: origPrice, unit, promo, image });
@@ -132,69 +141,51 @@ _EXTRACT_JS = r"""() => {
 }"""
 
 
-async def search_shengsiong(query: str) -> list[dict]:
+async def search_grabmart(query: str) -> list[dict]:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        ctx = await browser.new_context(user_agent=_UA, viewport={"width": 1280, "height": 900})
+        ctx = await browser.new_context(
+            user_agent=_UA,
+            viewport={"width": 390, "height": 844},  # mobile viewport — mart.grab.com is mobile-first
+            extra_http_headers={"Accept-Language": "en-SG,en;q=0.9"},
+        )
         page = await ctx.new_page()
         await page.route("**/*", block_resources)
 
         raw = []
         try:
-            await page.goto("https://shengsiong.com.sg/", wait_until="load", timeout=25_000)
-
-            search_sel = (
-                "input[type='search'], input[name='q'], input[name='s'], "
-                "input[name='keyword'], input[placeholder*='search' i], "
-                "#search, .search-input, [class*='search' i] input"
-            )
-            search_input = await page.query_selector(search_sel)
-            if search_input:
-                await search_input.click()
-                await search_input.fill(query)
-                await search_input.press("Enter")
+            for url_tmpl in _SEARCH_URLS:
+                url = url_tmpl.format(query.replace(" ", "+"))
                 try:
-                    await page.wait_for_load_state("load", timeout=20_000)
-                except Exception:
-                    pass
-                await asyncio.sleep(2)
-            else:
-                await page.goto(
-                    f"https://shengsiong.com.sg/search/{quote_plus(query)}",
-                    wait_until="load", timeout=20_000,
-                )
-                await asyncio.sleep(2)
-
-            # If search didn't navigate away from homepage, try direct URL
-            if page.url.rstrip("/") in ("https://shengsiong.com.sg", "https://www.shengsiong.com.sg"):
-                await page.goto(
-                    f"https://shengsiong.com.sg/search/{quote_plus(query)}",
-                    wait_until="load", timeout=20_000,
-                )
-                await asyncio.sleep(2)
-
-            try:
-                await page.wait_for_function(
-                    "() => document.body.innerText.includes('$')", timeout=8_000
-                )
-            except Exception:
-                pass
-
-            title = await page.title()
-            print(f"[sheng] loaded: {title} | {page.url}")
-            raw = await page.evaluate(_EXTRACT_JS)
+                    await page.goto(url, wait_until="domcontentloaded", timeout=25_000)
+                    try:
+                        await page.wait_for_function(
+                            "() => document.body.innerText.includes('$')", timeout=10_000
+                        )
+                    except Exception:
+                        pass
+                    await asyncio.sleep(2)
+                    title = await page.title()
+                    print(f"[grab] loaded: {title} | {page.url}")
+                    raw = await page.evaluate(_EXTRACT_JS)
+                    print(f"[grab] extracted {len(raw)} from {url}")
+                    if raw:
+                        break
+                except Exception as exc:
+                    print(f"[grab] {url} failed: {exc}")
+                    continue
         except Exception as exc:
-            print(f"[sheng] error: {exc}")
+            print(f"[grab] error: {exc}")
         finally:
             await ctx.close()
             await browser.close()
 
-    print(f"[sheng] extracted {len(raw)} cards")
+    print(f"[grab] extracted {len(raw)} cards total")
 
     products = []
     seen: set = set()
     for item in raw:
-        name = re.sub(r'\s+', ' ', (item.get("name") or "").strip())
+        name = re.sub(r"\s+", " ", (item.get("name") or "").strip())
         price = item.get("price")
         if not name or not price:
             continue
@@ -213,9 +204,9 @@ async def search_shengsiong(query: str) -> list[dict]:
             "image":          item.get("image", ""),
             "barcode":        None,
             "category":       "",
-            "store":          "sheng",
+            "store":          "grab",
             "scraped_at":     datetime.utcnow(),
         })
 
-    print(f"[sheng] parsed {len(products)} products")
+    print(f"[grab] parsed {len(products)} products")
     return products

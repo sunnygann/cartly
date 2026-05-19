@@ -23,12 +23,14 @@ app.add_middleware(
 )
 
 STORES_SEED = [
-    {"key": "ntuc",  "name": "NTUC FairPrice", "color": "#e8231a"},
-    {"key": "giant", "name": "Giant",           "color": "#f5a623"},
-    {"key": "cold",  "name": "Cold Storage",    "color": "#0066cc"},
-    {"key": "sheng", "name": "Sheng Siong",     "color": "#2ecc71"},
-    {"key": "red",   "name": "RedMart",         "color": "#e84393"},
-    {"key": "donki", "name": "Don Don Donki",   "color": "#e60012"},
+    {"key": "ntuc",   "name": "NTUC FairPrice",  "color": "#e8231a"},
+    {"key": "giant",  "name": "Giant",            "color": "#f5a623"},
+    {"key": "cold",   "name": "Cold Storage",     "color": "#0066cc"},
+    {"key": "sheng",  "name": "Sheng Siong",      "color": "#2ecc71"},
+    {"key": "red",    "name": "RedMart",          "color": "#e84393"},
+    {"key": "donki",  "name": "Don Don Donki",    "color": "#e60012"},
+    {"key": "amazon", "name": "Amazon Fresh",     "color": "#ff9900"},
+    {"key": "grab",   "name": "GrabMart",         "color": "#00b14f"},
 ]
 
 PRICE_TTL_HOURS = 6
