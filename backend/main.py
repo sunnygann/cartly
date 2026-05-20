@@ -179,6 +179,30 @@ def _sse(payload: dict) -> str:
 
 # ── routes ───────────────────────────────────────────────────────────────────
 
+async def _scrape_and_save(store_key: str, fn, query: str) -> str:
+    """Scrape one store and persist results. Runs as an independent task so the
+    DB write completes even if the SSE client disconnects mid-stream."""
+    try:
+        results = await fn(query)
+    except Exception as exc:
+        print(f"[{store_key}] error: {exc}")
+        results = []
+
+    if results:
+        async with _session() as db:
+            store = await _get_store(db, store_key)
+            if store:
+                for raw in results:
+                    try:
+                        await _upsert_price(db, store, raw)
+                    except Exception as exc:
+                        print(f"[{store_key}] upsert error: {exc}")
+                await db.commit()
+        print(f"[{store_key}] saved {len(results)} results")
+
+    return store_key
+
+
 @app.get("/api/search")
 async def search(q: str = Query(..., min_length=1), fresh: bool = False):
     async def event_stream():
@@ -193,34 +217,20 @@ async def search(q: str = Query(..., min_length=1), fresh: bool = False):
             yield _sse({"type": "done"})
             return
 
-        # 2. Run each scraper independently; emit after each one saves
+        # 2. Launch scrapers as independent tasks — each writes to DB itself so
+        #    results are persisted even if the client disconnects before we yield.
         scrape_start = datetime.utcnow()
-
-        async def run_one(store_key, fn):
-            try:
-                return store_key, await fn(q)
-            except Exception as exc:
-                print(f"[{store_key}] error: {exc}")
-                return store_key, []
-
-        tasks = [asyncio.create_task(run_one(k, fn)) for k, fn in SCRAPERS.items()]
+        tasks = [
+            asyncio.create_task(_scrape_and_save(k, fn, q))
+            for k, fn in SCRAPERS.items()
+        ]
 
         for fut in asyncio.as_completed(tasks):
-            store_key, results = await fut
-            if not results:
-                continue
+            await fut
             async with _session() as db:
-                store = await _get_store(db, store_key)
-                if not store:
-                    continue
-                for raw in results:
-                    try:
-                        await _upsert_price(db, store, raw)
-                    except Exception as exc:
-                        print(f"[{store_key}] upsert error: {exc}")
-                await db.commit()
                 updated = await _fresh_prices(db, q, since=scrape_start if fresh else None)
-            yield _sse({"type": "results", "source": "live", "results": updated})
+            if updated:
+                yield _sse({"type": "results", "source": "live", "results": updated})
 
         # 3. Record this query so subsequent searches hit cache
         async with _session() as db:

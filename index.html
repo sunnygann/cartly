@@ -854,6 +854,16 @@ let _lastResults = [], _lastQuery = '';
 let _storesSeen = new Set();
 let _countdownInterval = null;
 let _searchStart = 0;
+let _searching = false;
+
+// When the tab/app comes back to foreground and a search was in progress but
+// the SSE connection was dropped (browser backgrounded), reconnect to pick up
+// any results the backend saved while we were away.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && _lastQuery && _searching && !_activeSource) {
+    doSearch(_lastQuery, false);
+  }
+});
 
 // Per-store expected scrape time (seconds) — drives ETA prediction
 const _SCRAPER_STORES = [
@@ -892,6 +902,7 @@ function quickSearch(q) {
 let _activeSource = null;
 
 function _setSearching(on) {
+  _searching = on;
   let badge = document.getElementById('stream-badge');
   if (on) {
     if (!badge) {
@@ -981,6 +992,8 @@ function doSearch() {
 
   _lastQuery   = q;
   _lastResults = [];
+  let _done = false;
+  let _retried = false;
 
   // Show skeleton cards immediately so grid isn't blank while scrapers run
   grid.innerHTML = Array.from({length: 6}, (_, i) => `
@@ -1021,6 +1034,7 @@ function doSearch() {
         });
       }
     } else if (msg.type === 'done') {
+      _done = true;
       source.close();
       _activeSource = null;
       _setSearching(false);
@@ -1031,11 +1045,22 @@ function doSearch() {
   };
 
   source.onerror = () => {
+    if (_done) return; // clean stream close — already handled
     source.close();
     _activeSource = null;
+    // Auto-retry once silently before showing an error
+    if (!_retried) {
+      _retried = true;
+      _done = false;
+      setTimeout(() => doSearch(q, fresh), 1500);
+      return;
+    }
     _setSearching(false);
     if (_lastResults.length === 0) {
-      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--accent)">⚠ Could not reach the backend.</div>';
+      grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--muted)">
+        ⚠ Could not reach the backend.
+        <br><button onclick="doSearch('${q.replace(/'/g,"\\'")}',false)" style="margin-top:1rem;padding:.5rem 1.25rem;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:.9rem;font-weight:600">Try again</button>
+      </div>`;
     }
   };
 }
